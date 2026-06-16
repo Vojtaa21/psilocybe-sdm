@@ -318,7 +318,7 @@ with col_panel:
 
     elif st.session_state.clicked_point:
         cp = st.session_state.clicked_point
-        lat, lon = cp["lat"], cp["lon"]
+        lat, lon = cp["lat"], cp.get("lon") or cp.get("lng", 0)
         point_label = f"{lat:.4f}°N · {lon:.4f}°E"
         with st.spinner("Načítám data pro vybraný bod..."):
             climate = get_worldclim_value(lat, lon)
