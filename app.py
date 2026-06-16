@@ -268,7 +268,7 @@ with col_map:
     cp = st.session_state.clicked_point
     if cp:
         folium.Marker(
-            [cp["lat"], cp["lon"]],
+            [cp["lat"], cp.get("lon") or cp.get("lng", 0)],
             icon=folium.Icon(color="red", icon="info-sign"),
             tooltip=f"📍 {cp['lat']:.4f}°N · {cp['lon']:.4f}°E",
         ).add_to(m)
