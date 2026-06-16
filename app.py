@@ -270,7 +270,7 @@ with col_map:
         folium.Marker(
             [cp["lat"], cp.get("lon") or cp.get("lng", 0)],
             icon=folium.Icon(color="red", icon="info-sign"),
-            tooltip=f"📍 {cp['lat']:.4f}°N · {cp['lon']:.4f}°E",
+            tooltip=f"📍 {cp['lat']:.4f}°N · {cp.get('lon') or cp.get('lng', 0):.4f}°E",
         ).add_to(m)
 
     folium.LayerControl(collapsed=False).add_to(m)
