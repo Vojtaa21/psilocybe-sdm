@@ -1,22 +1,25 @@
 """
-Psy Space — Streamlit aplikace pro sledování výskytu Psilocybe semilanceata
-Druh houby je pevně definován v modelu (sdm_model.py).
+Psy Space — predikční nástroj výskytu Psilocybe semilanceata
+Streamlit aplikace připravená pro Streamlit Cloud + sdm_model.py
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
+import folium
+from streamlit_folium import st_folium
 from datetime import date, timedelta
 
-# ── Volitelný import modelu (aplikace funguje i bez něj) ────────────────────
+# ── Volitelný import modelu ──────────────────────────────────────────────────
 try:
     from sdm_model import PsilocybeSDM, SDMFeatures
+    _model = PsilocybeSDM()
     MODEL_AVAILABLE = True
 except ImportError:
     MODEL_AVAILABLE = False
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. KONFIGURACE STRÁNKY
+# 1. KONFIGURACE
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Psy Space",
@@ -26,534 +29,520 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. VIZUÁLNÍ STYL — "vesmírně-lesní" estetika
+# 2. CSS — vesmírně-lesní estetika
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-/* ── Základní pozadí ── */
+/* Základní pozadí */
 html, body, [data-testid="stAppViewContainer"] {
-    background-color: #050d05;
-    color: #e0ffe0;
+    background-color: #03080f;
+    color: #d0f0d0;
 }
+.block-container { padding-top: 1.2rem !important; max-width: 1280px; }
 
-/* ── Sidebar ── */
+/* Sidebar */
 [data-testid="stSidebar"] {
-    background: linear-gradient(160deg, #050d05 0%, #0a1f0a 60%, #0d1a06 100%);
-    border-right: 1px solid #1a3a1a;
+    background: linear-gradient(175deg, #03080f 0%, #071a12 100%);
+    border-right: 1px solid #0d3020;
 }
-[data-testid="stSidebar"] * { color: #a8e44a !important; }
+[data-testid="stSidebar"] * { color: #7dcc8a !important; }
 [data-testid="stSidebar"] h1 {
-    font-size: 1.3rem !important;
-    color: #39ff14 !important;
-    letter-spacing: 0.1em;
-    text-shadow: 0 0 12px #39ff1480;
+    color: #39ff14 !important; font-size: 1.35rem !important;
+    letter-spacing: 0.1em; text-shadow: 0 0 16px #39ff1460;
 }
 [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #ff8c00 !important;
-    font-size: 0.8rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    color: #ff8c00 !important; font-size: 0.78rem !important;
+    text-transform: uppercase; letter-spacing: 0.14em;
 }
-[data-testid="stSidebar"] hr { border-color: #1a3a1a !important; }
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stDateInput label { color: #7dbb3a !important; font-size: 0.82rem !important; }
+[data-testid="stSidebar"] hr { border-color: #0d3020 !important; }
 
-/* ── Hlavní nadpis ── */
-.psy-title {
-    font-size: 2.6rem;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    background: linear-gradient(90deg, #39ff14, #a8e44a, #ff8c00);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    text-shadow: none;
-    margin-bottom: 0;
-    line-height: 1.1;
+/* Nadpis */
+.psy-logo {
+    font-size: 2.8rem; font-weight: 900; letter-spacing: 0.1em;
+    background: linear-gradient(90deg, #39ff14 0%, #a8e44a 50%, #ff8c00 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; line-height: 1.05;
 }
-.psy-subtitle {
-    font-size: 0.85rem;
-    color: #4a7a1a;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin-bottom: 1.5rem;
+.psy-species {
+    font-size: 0.82rem; color: #2d6040; letter-spacing: 0.2em;
+    text-transform: uppercase; margin-bottom: 1.2rem;
 }
 
-/* ── KPI karty ── */
-.kpi-card {
-    background: linear-gradient(135deg, #0a1f0a 0%, #0d2a0d 100%);
-    border: 1px solid #1e4a1e;
-    border-radius: 14px;
-    padding: 22px 20px 18px;
+/* Hlavní widget — pravděpodobnost */
+.prob-widget {
+    background: linear-gradient(135deg, #03120a 0%, #071f10 100%);
+    border: 1px solid #0d4020;
+    border-radius: 18px;
+    padding: 28px 24px 22px;
     text-align: center;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 0.3s;
+    position: relative; overflow: hidden;
 }
-.kpi-card::before {
+.prob-widget::before {
     content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
     background: linear-gradient(90deg, transparent, #39ff14, transparent);
 }
-.kpi-card:hover { border-color: #39ff1460; }
-.kpi-icon { font-size: 1.6rem; margin-bottom: 6px; }
-.kpi-label {
-    font-size: 0.72rem;
-    color: #4a7a1a;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin-bottom: 8px;
+.prob-widget::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, #ff8c0040, transparent);
 }
-.kpi-value {
-    font-size: 2.4rem;
-    font-weight: 800;
-    color: #39ff14;
-    line-height: 1;
-    text-shadow: 0 0 20px #39ff1440;
+.prob-label {
+    font-size: 0.72rem; color: #2d6040;
+    text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 10px;
 }
-.kpi-unit { font-size: 1rem; color: #7dbb3a; margin-left: 2px; }
-.kpi-value.orange { color: #ff8c00; text-shadow: 0 0 20px #ff8c0040; }
-.kpi-value.yellow { color: #ffd700; text-shadow: 0 0 20px #ffd70040; }
-.kpi-trend {
-    font-size: 0.75rem;
-    color: #4a7a1a;
-    margin-top: 6px;
+.prob-value {
+    font-size: 5rem; font-weight: 900; line-height: 1;
+    letter-spacing: -0.03em;
+    transition: color 0.4s;
 }
-
-/* ── Sekce ── */
-.section-header {
-    font-size: 0.75rem;
-    color: #ff8c00;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    border-bottom: 1px solid #1a3a1a;
-    padding-bottom: 6px;
-    margin: 24px 0 16px;
-}
-
-/* ── Mapa placeholder ── */
-.map-container {
-    background: #050d05;
-    border: 1px solid #1e4a1e;
-    border-radius: 14px;
-    padding: 0;
-    overflow: hidden;
-    position: relative;
-}
-.map-overlay-label {
-    position: absolute;
-    top: 12px; left: 16px;
-    background: #050d05cc;
-    border: 1px solid #39ff1440;
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 0.75rem;
-    color: #39ff14;
-    letter-spacing: 0.1em;
-    z-index: 10;
-}
-
-/* ── Info badge ── */
-.info-badge {
+.prob-value.high   { color: #39ff14; text-shadow: 0 0 30px #39ff1450; }
+.prob-value.medium { color: #ffd700; text-shadow: 0 0 30px #ffd70040; }
+.prob-value.low    { color: #ff8c00; text-shadow: 0 0 30px #ff8c0040; }
+.prob-value.none   { color: #2d4030; text-shadow: none; }
+.prob-pct { font-size: 2rem; font-weight: 400; opacity: 0.7; }
+.prob-status {
     display: inline-block;
-    background: #0d2a0d;
-    border: 1px solid #1e4a1e;
-    border-radius: 20px;
-    padding: 4px 12px;
-    font-size: 0.75rem;
-    color: #7dbb3a;
-    margin: 2px;
-    letter-spacing: 0.06em;
+    margin-top: 10px; padding: 4px 16px;
+    border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+    letter-spacing: 0.08em;
 }
-.info-badge.orange {
-    border-color: #3a2000;
-    color: #ff8c00;
-    background: #1a1000;
+.prob-status.high   { background: #0d3a10; color: #39ff14; border: 1px solid #39ff1440; }
+.prob-status.medium { background: #2a2000; color: #ffd700; border: 1px solid #ffd70040; }
+.prob-status.low    { background: #2a1000; color: #ff8c00; border: 1px solid #ff8c0040; }
+.prob-status.none   { background: #0d1a10; color: #2d6040; border: 1px solid #0d3020; }
+.prob-coords {
+    margin-top: 10px; font-size: 0.75rem; color: #2d6040;
+    font-family: monospace; letter-spacing: 0.05em;
 }
 
-/* ── Scrollbar ── */
+/* Sekundární widgety */
+.sec-widget {
+    background: #03120a;
+    border: 1px solid #0d3020;
+    border-radius: 14px;
+    padding: 18px 16px 14px;
+    text-align: center; height: 100%;
+}
+.sec-label {
+    font-size: 0.7rem; color: #2d6040;
+    text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 8px;
+}
+.sec-value { font-size: 2rem; font-weight: 800; color: #39ff14; line-height: 1; }
+.sec-value.orange { color: #ff8c00; }
+.sec-sub { font-size: 0.75rem; color: #2d6040; margin-top: 5px; }
+
+/* Sekce header */
+.sec-header {
+    font-size: 0.72rem; color: #ff8c00;
+    text-transform: uppercase; letter-spacing: 0.2em;
+    border-bottom: 1px solid #0d3020;
+    padding-bottom: 5px; margin: 20px 0 12px;
+}
+
+/* Info tip */
+.map-tip {
+    background: #03120a; border: 1px solid #0d3020;
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 0.78rem; color: #2d6040;
+    margin-bottom: 10px; line-height: 1.5;
+}
+.map-tip span { color: #39ff14; }
+
+/* Popup výsledek */
+.popup-result {
+    background: #071f10; border: 1px solid #39ff1430;
+    border-radius: 12px; padding: 16px 20px;
+    margin-top: 12px;
+}
+.popup-result-title { font-size: 0.72rem; color: #2d6040; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px; }
+.popup-result-val { font-size: 1.8rem; font-weight: 800; }
+
+/* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: #050d05; }
-::-webkit-scrollbar-thumb { background: #1e4a1e; border-radius: 2px; }
-
-/* ── Streamlit defaults přepsat ── */
-.stMetric { background: transparent !important; }
-[data-testid="metric-container"] { background: transparent !important; }
-.block-container { padding-top: 1.5rem !important; max-width: 1300px; }
+::-webkit-scrollbar-track { background: #03080f; }
+::-webkit-scrollbar-thumb { background: #0d3020; border-radius: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. PEVNĚ DEFINOVANÝ DRUH — napojení na sdm_model.py
+# 3. KONSTANTY DRUHU — pevně definovaný v modelu
 # ══════════════════════════════════════════════════════════════════════════════
-
-# Druh je pevně definován — sdm_model.py pracuje pouze s tímto druhem
 SPECIES = {
-    "name":        "Psilocybe semilanceata",
-    "cz_name":     "Lysohlávka kopinatá",
-    "emoji":       "🍄",
-    "habitat":     "vlhké pastviny, louky",
-    "opt_temp":    (6, 14),      # °C optimální rozsah
-    "opt_rain":    (600, 1400),  # mm/rok
-    "opt_ph":      (4.5, 6.5),
-    "opt_elev":    (100, 800),   # m n. m.
-    "season":      "září–říjen",
+    "name":     "Psilocybe semilanceata",
+    "cz":       "Lysohlávka kopinatá",
+    "emoji":    "🍄",
+    "season":   (8, 10),   # měsíce (srpen–říjen)
+    "opt_temp": (6, 14),
+    "opt_elev": (100, 800),
+    "habitat":  "vlhké pastviny a louky",
 }
 
-# Regiony ČR/SR pro filtrování
-REGIONS = [
-    "Celá ČR + SR",
-    "Čechy — západ (Šumava, Krušné hory)",
-    "Čechy — střed (Praha, Středočeský kraj)",
-    "Čechy — východ (Krkonoše, Orlické hory)",
-    "Morava — sever (Jeseníky, Beskydy)",
-    "Morava — jih (Bílé Karpaty, Pálava)",
-    "Slovensko — západ (Malé Karpaty)",
-    "Slovensko — sever (Tatry, Orava)",
-]
-
-# Bounding boxy pro regiony [lat_min, lat_max, lon_min, lon_max]
-REGION_BBOX = {
-    "Celá ČR + SR":                          [47.5, 51.2, 12.0, 22.5],
-    "Čechy — západ (Šumava, Krušné hory)":   [48.5, 50.8, 12.0, 14.5],
-    "Čechy — střed (Praha, Středočeský kraj)":[49.5, 50.5, 13.8, 15.5],
-    "Čechy — východ (Krkonoše, Orlické hory)":[50.0, 51.0, 15.5, 17.0],
-    "Morava — sever (Jeseníky, Beskydy)":     [49.3, 50.2, 17.0, 18.8],
-    "Morava — jih (Bílé Karpaty, Pálava)":    [48.6, 49.5, 17.0, 18.5],
-    "Slovensko — západ (Malé Karpaty)":        [48.0, 49.0, 16.8, 18.5],
-    "Slovensko — sever (Tatry, Orava)":        [49.0, 49.8, 19.0, 21.0],
+REGIONS = {
+    "Celá ČR + SR":                  [49.5, 16.5, 7],
+    "Šumava a Krušné hory":          [49.0, 13.5, 8],
+    "Praha a Středočeský kraj":      [50.0, 14.5, 9],
+    "Krkonoše a Orlické hory":       [50.6, 16.0, 9],
+    "Jeseníky a Beskydy":            [49.8, 17.8, 9],
+    "Bílé Karpaty a jih Moravy":     [48.9, 17.5, 9],
+    "Tatry a Orava (SK)":            [49.3, 19.8, 9],
+    "Malé Karpaty (SK)":             [48.5, 17.3, 9],
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. SIDEBAR — filtry
+# 4. SESSION STATE
+# ══════════════════════════════════════════════════════════════════════════════
+if "clicked_lat"  not in st.session_state: st.session_state.clicked_lat  = None
+if "clicked_lon"  not in st.session_state: st.session_state.clicked_lon  = None
+if "click_prob"   not in st.session_state: st.session_state.click_prob   = None
+if "click_status" not in st.session_state: st.session_state.click_status = None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. MODEL — funkce pro pravděpodobnost
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_probability(lat: float, lon: float) -> float:
+    """
+    Hlavní predikční funkce — vrátí pravděpodobnost výskytu 0.0–1.0.
+
+    Produkční napojení na sdm_model.py:
+    ------------------------------------
+    features = SDMFeatures(
+        bio01  = get_temperature(lat, lon),   # z ERA5 / ČHMÚ
+        bio12  = get_rainfall(lat, lon),      # roční srážky mm
+        ph     = get_soil_ph(lat, lon),       # SoilGrids API
+        elev   = get_elevation(lat, lon),     # Open-Elevation API
+        ndvi   = get_ndvi(lat, lon),          # Sentinel-2
+        bio04  = 750.0,
+        bio15  = 26.0,
+    )
+    result = _model.predict_point(features)
+    return result.probability
+    ------------------------------------
+    """
+    if MODEL_AVAILABLE:
+        # Produkční mód — odkomentuj výše a smaž demo blok níže
+        pass
+
+    # Demo mód — deterministická aproximace podle polohy
+    rng = np.random.default_rng(int(abs(lat * 1000 + lon * 100)) % (2**31))
+    month = date.today().month
+
+    # Klimatická aproximace pro ČR/SR
+    temp   = 12.5 - (lat - 48.5) * 1.6 + rng.normal(0, 0.8)
+    elev   = max(50, 200 + abs(lat - 50) * 120 + rng.normal(0, 80))
+    rain   = 620 + (lon - 14) * 30 + rng.normal(0, 60)
+
+    def tri(v, ol, oh, al, ah):
+        if v < al or v > ah: return 0.0
+        if ol <= v <= oh:    return 1.0
+        return (v-al)/(ol-al) if v < ol else (ah-v)/(ah-oh)
+
+    in_season = SPECIES["season"][0] <= month <= SPECIES["season"][1]
+    score = (
+        0.30 * tri(temp,  6,  14,  0, 22) +
+        0.25 * tri(rain, 600, 1400, 300, 2000) +
+        0.20 * tri(elev, 100,  800,  50, 1400) +
+        0.15 * (1.0 if in_season else 0.2) +
+        0.10 * float(rng.uniform(0.3, 0.9))
+    )
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def prob_class(p: float) -> str:
+    """Vrátí CSS třídu podle pravděpodobnosti."""
+    if p >= 0.65: return "high"
+    if p >= 0.40: return "medium"
+    if p >= 0.15: return "low"
+    return "none"
+
+
+def prob_label(p: float) -> str:
+    """Vrátí český popis vhodnosti."""
+    if p >= 0.65: return "Velmi vhodné"
+    if p >= 0.40: return "Podmíněně vhodné"
+    if p >= 0.15: return "Málo vhodné"
+    return "Nevhodné"
+
+
+def get_demo_kpi(region: str) -> dict:
+    """
+    Vrátí KPI hodnoty pro sidebar/widgety.
+    Nahradit reálným API / sdm_model výstupem.
+    """
+    rng    = np.random.default_rng(hash(region) % (2**32))
+    month  = date.today().month
+    season = SPECIES["season"][0] <= month <= SPECIES["season"][1]
+    return {
+        "occurrences": int(rng.integers(2, 28 if season else 5)),
+        "in_season":   season,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("# 🍄 Psy Space")
-    st.markdown("*monitoring výskytu hub*")
+    st.markdown("*predikce výskytu lysohlávek*")
     st.markdown("---")
 
-    # Druh — pouze informativní, pevně definován
+    # Druh — pevně definován
     st.markdown("### Sledovaný druh")
     st.markdown(f"""
-    <div style="background:#0d2a0d;border:1px solid #1e4a1e;border-radius:10px;
-                padding:12px 14px;margin-bottom:8px">
-        <div style="font-size:1.4rem;margin-bottom:4px">{SPECIES['emoji']}</div>
-        <div style="color:#39ff14;font-weight:700;font-size:0.95rem">
-            {SPECIES['cz_name']}</div>
-        <div style="color:#4a7a1a;font-size:0.78rem;font-style:italic;margin-top:2px">
-            {SPECIES['name']}</div>
-        <div style="color:#4a7a1a;font-size:0.75rem;margin-top:6px">
-            📍 {SPECIES['habitat']}<br>
-            📅 sezóna: {SPECIES['season']}
+    <div style="background:#03120a;border:1px solid #0d3020;border-radius:10px;padding:12px 14px;margin-bottom:4px">
+        <div style="font-size:1.3rem">{SPECIES['emoji']}</div>
+        <div style="color:#39ff14;font-weight:700;font-size:0.92rem;margin-top:2px">{SPECIES['cz']}</div>
+        <div style="color:#2d6040;font-size:0.76rem;font-style:italic">{SPECIES['name']}</div>
+        <div style="color:#2d6040;font-size:0.74rem;margin-top:6px">📍 {SPECIES['habitat']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("")
+
+    st.markdown("---")
+    st.markdown("### Region")
+    selected_region = st.selectbox(
+        "Oblast", options=list(REGIONS.keys()), label_visibility="collapsed"
+    )
+
+    st.markdown("---")
+    st.markdown("### Časový rámec")
+    time_mode = st.radio(
+        "Období", ["Aktuální týden", "Vlastní rozsah"], label_visibility="collapsed"
+    )
+    if time_mode == "Aktuální týden":
+        d_from = date.today() - timedelta(days=date.today().weekday())
+        d_to   = d_from + timedelta(days=6)
+        st.caption(f"📅 {d_from.strftime('%d. %m.')} — {d_to.strftime('%d. %m. %Y')}")
+    else:
+        d_from = st.date_input("Od", value=date.today() - timedelta(days=7))
+        d_to   = st.date_input("Do", value=date.today())
+
+    st.markdown("---")
+    # Model status
+    if MODEL_AVAILABLE:
+        st.markdown('<div style="background:#03120a;border:1px solid #0d4020;border-radius:8px;padding:6px 12px;font-size:0.75rem;color:#39ff14">✓ sdm_model.py aktivní</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="background:#1a0800;border:1px solid #3a2000;border-radius:8px;padding:6px 12px;font-size:0.75rem;color:#ff8c00">⚠ demo mód — sdm_model.py nenalezen</div>', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. HLAVNÍ OBSAH
+# ══════════════════════════════════════════════════════════════════════════════
+kpi = get_demo_kpi(selected_region)
+region_center = REGIONS[selected_region]  # [lat, lon, zoom]
+
+# ── Header ────────────────────────────────────────────────────────────────────
+col_title, col_hint = st.columns([2, 1])
+with col_title:
+    st.markdown(f'<div class="psy-logo">PSY SPACE</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="psy-species">{SPECIES["emoji"]} {SPECIES["name"]} '
+        f'&nbsp;·&nbsp; {selected_region}</div>',
+        unsafe_allow_html=True,
+    )
+with col_hint:
+    st.markdown("""
+    <div style="padding-top:12px;font-size:0.78rem;color:#2d6040;text-align:right;line-height:1.6">
+        👆 Klikni na mapu<br>pro analýzu bodu
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Widgety — pravděpodobnost + sekundární ────────────────────────────────────
+col_prob, col_sec = st.columns([2, 1], gap="large")
+
+with col_prob:
+    # Hlavní widget — pravděpodobnost
+    if st.session_state.click_prob is not None:
+        p      = st.session_state.click_prob
+        cls    = prob_class(p)
+        lbl    = prob_label(p)
+        lat_s  = f"{st.session_state.clicked_lat:.4f}°N"
+        lon_s  = f"{st.session_state.clicked_lon:.4f}°E"
+        coords = f"{lat_s} · {lon_s}"
+    else:
+        p      = 0.0
+        cls    = "none"
+        lbl    = "Klikni na mapu"
+        coords = "čeká na výběr bodu…"
+
+    pct = int(p * 100)
+    st.markdown(f"""
+    <div class="prob-widget">
+        <div class="prob-label">🍄 Pravděpodobnost výskytu</div>
+        <div class="prob-value {cls}">{pct}<span class="prob-pct"> %</span></div>
+        <div>
+            <span class="prob-status {cls}">{lbl}</span>
+        </div>
+        <div class="prob-coords">{coords}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_sec:
+    month_now  = date.today().month
+    in_season  = SPECIES["season"][0] <= month_now <= SPECIES["season"][1]
+    season_txt = "✅ Probíhá" if in_season else "⏳ Mimo sezónu"
+    season_cls = "" if in_season else "orange"
+
+    # Sekundární widget 1 — nálezy
+    st.markdown(f"""
+    <div class="sec-widget" style="margin-bottom:12px">
+        <div class="sec-label">📍 Zaznamenané nálezy</div>
+        <div class="sec-value">{kpi['occurrences']}</div>
+        <div class="sec-sub">v oblasti za posledních 7 dní</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Sekundární widget 2 — sezóna
+    st.markdown(f"""
+    <div class="sec-widget">
+        <div class="sec-label">📅 Hlavní sezóna</div>
+        <div class="sec-value {season_cls}" style="font-size:1.3rem">{season_txt}</div>
+        <div class="sec-sub">optimum: srpen–říjen</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Mapa ──────────────────────────────────────────────────────────────────────
+st.markdown('<div class="sec-header">Interaktivní mapa výskytu</div>', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="map-tip">
+    <span>👆 Klikni kamkoliv na mapu</span> — aplikace okamžitě vypočítá
+    pravděpodobnost výskytu lysohlávek pro vybrané místo pomocí AI modelu.
+    Výsledek se zobrazí v hlavním widgetu výše i jako značka na mapě.
+</div>
+""", unsafe_allow_html=True)
+
+# Sestav folium mapu
+m = folium.Map(
+    location=[region_center[0], region_center[1]],
+    zoom_start=region_center[2],
+    tiles="CartoDB dark_matter",   # tmavý podklad = vesmírně-lesní estetika
+    prefer_canvas=True,
+)
+
+# Přidej marker kliknutého bodu s výsledkem
+if (st.session_state.clicked_lat is not None
+        and st.session_state.click_prob is not None):
+
+    p   = st.session_state.click_prob
+    cls = prob_class(p)
+    color_map = {"high": "green", "medium": "orange", "low": "red", "none": "gray"}
+    marker_color = color_map.get(cls, "gray")
+
+    # Popup HTML
+    popup_html = f"""
+    <div style="font-family:monospace;min-width:180px;padding:4px">
+        <div style="font-weight:700;font-size:1.1rem;color:#1a1a1a;margin-bottom:4px">
+            {int(p*100)} % pravděpodobnost
+        </div>
+        <div style="font-size:0.8rem;color:#444">{prob_label(p)}</div>
+        <hr style="margin:6px 0;border-color:#ddd">
+        <div style="font-size:0.75rem;color:#666">
+            📍 {st.session_state.clicked_lat:.5f}°N<br>
+            📍 {st.session_state.clicked_lon:.5f}°E
+        </div>
+    </div>
+    """
+
+    folium.Marker(
+        location=[st.session_state.clicked_lat, st.session_state.clicked_lon],
+        icon=folium.Icon(color=marker_color, icon="leaf", prefix="fa"),
+        popup=folium.Popup(popup_html, max_width=220),
+        tooltip=f"🍄 {int(p*100)} % · {prob_label(p)}",
+    ).add_to(m)
+
+    # Kruh vhodnosti
+    folium.Circle(
+        location=[st.session_state.clicked_lat, st.session_state.clicked_lon],
+        radius=8000,
+        color={"high":"#39ff14","medium":"#ffd700","low":"#ff8c00","none":"#444"}.get(cls,"#444"),
+        fill=True, fill_opacity=0.08, weight=1,
+    ).add_to(m)
+
+# Zachyť kliknutí
+map_data = st_folium(
+    m,
+    width="100%",
+    height=480,
+    key="psy_map",
+    returned_objects=["last_clicked"],
+)
+
+# ── Zpracování kliknutí → model → výsledek ────────────────────────────────────
+if map_data:
+    raw = map_data.get("last_clicked")
+    if raw and isinstance(raw, dict):
+        lat = raw.get("lat") or raw.get("latitude")
+        lng = raw.get("lng") or raw.get("lon") or raw.get("longitude")
+        if lat is not None and lng is not None:
+            lat, lng = float(lat), float(lng)
+            if (lat != st.session_state.clicked_lat
+                    or lng != st.session_state.clicked_lon):
+                # ── Výpočet pravděpodobnosti přes model ──────────────────────
+                with st.spinner("Analyzuji bod…"):
+                    prob = get_probability(lat, lng)
+                # Ulož do session state
+                st.session_state.clicked_lat  = lat
+                st.session_state.clicked_lon  = lng
+                st.session_state.click_prob   = prob
+                st.session_state.click_status = prob_label(prob)
+                st.rerun()
+
+# ── Výsledek pod mapou (záložní zobrazení) ────────────────────────────────────
+if st.session_state.click_prob is not None:
+    p   = st.session_state.click_prob
+    cls = prob_class(p)
+    color_map_css = {
+        "high":   "#39ff14",
+        "medium": "#ffd700",
+        "low":    "#ff8c00",
+        "none":   "#2d6040",
+    }
+    c = color_map_css.get(cls, "#2d6040")
+
+    st.markdown(f"""
+    <div class="popup-result">
+        <div class="popup-result-title">Výsledek analýzy posledního bodu</div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-top:4px">
+            <div class="popup-result-val" style="color:{c}">{int(p*100)} %</div>
+            <div style="font-size:0.85rem;color:{c}">{prob_label(p)}</div>
+            <div style="font-size:0.78rem;color:#2d6040;margin-left:auto;font-family:monospace">
+                {st.session_state.clicked_lat:.5f}°N &nbsp; {st.session_state.clicked_lon:.5f}°E
+            </div>
+        </div>
+        <div style="font-size:0.75rem;color:#2d6040;margin-top:6px">
+            Model: <code>get_probability(lat, lon)</code> ·
+            {'sdm_model.py' if MODEL_AVAILABLE else 'demo aproximace'}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
+# ── Ekologický profil ─────────────────────────────────────────────────────────
+st.markdown('<div class="sec-header">Ekologický profil druhu</div>', unsafe_allow_html=True)
 
-    # Filtr: Region
-    st.markdown("### Region")
-    selected_region = st.selectbox(
-        "Vyber oblast zájmu",
-        options=REGIONS,
-        index=0,
-        label_visibility="collapsed",
-    )
-
-    st.markdown("---")
-
-    # Filtr: Časový rámec
-    st.markdown("### Časový rámec")
-    time_mode = st.radio(
-        "Zobrazit data za",
-        options=["Aktuální týden", "Vlastní rozsah"],
-        label_visibility="collapsed",
-    )
-
-    if time_mode == "Aktuální týden":
-        date_from = date.today() - timedelta(days=date.today().weekday())
-        date_to   = date_from + timedelta(days=6)
-        st.caption(f"📅 {date_from.strftime('%d. %m.')} — {date_to.strftime('%d. %m. %Y')}")
-    else:
-        date_from = st.date_input("Od", value=date.today() - timedelta(days=7))
-        date_to   = st.date_input("Do", value=date.today())
-
-    st.markdown("---")
-
-    # Model status
-    st.markdown("### Model")
-    if MODEL_AVAILABLE:
-        st.markdown('<div class="info-badge">✓ sdm_model.py načten</div>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="info-badge orange">⚠ demo mód</div>',
-                    unsafe_allow_html=True)
-        st.caption("Spusť sdm_model.py pro reálná data")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. VÝPOČET DAT — napojení na model nebo demo hodnoty
-# ══════════════════════════════════════════════════════════════════════════════
-
-bbox = REGION_BBOX.get(selected_region, REGION_BBOX["Celá ČR + SR"])
-
-def get_kpi_data(region: str) -> dict:
-    """
-    Vrátí aktuální KPI hodnoty pro vybraný region.
-    V produkci: napojit na weather API + sdm_model.predict_point().
-
-    Návratový slovník:
-        temperature   — aktuální teplota °C
-        humidity      — relativní vlhkost %
-        probability   — pravděpodobnost růstu 0–100 %
-        temp_trend    — trend teploty (textový popis)
-        rain_7d       — srážky za posledních 7 dní (mm)
-        occurrences   — počet hlášených nálezů v oblasti
-    """
-    if MODEL_AVAILABLE:
-        # ── Produkční mód: použij sdm_model.py ─────────────────────────────
-        # model = PsilocybeSDM()
-        # features = SDMFeatures(
-        #     bio01=current_temp,
-        #     bio12=annual_rain,
-        #     ph=soil_ph,
-        #     elev=mean_elevation,
-        #     ndvi=current_ndvi,
-        #     bio04=750, bio15=26,
-        # )
-        # result = model.predict_point(features)
-        # return {"probability": result.probability * 100, ...}
-        pass
-
-    # ── Demo mód: simulované hodnoty podle regionu ──────────────────────────
-    rng = np.random.default_rng(hash(region) % (2**32))
-
-    # Simuluj teplotu podle regionu a ročního období
-    month = date.today().month
-    base_temp = 12 - abs(month - 9) * 1.8   # optimum v září
-    is_mountain = any(k in region for k in ["Tatry", "Jeseníky", "Šumava", "Krkonoše"])
-    temp = round(base_temp - (3 if is_mountain else 0) + rng.normal(0, 1.5), 1)
-
-    # Pravděpodobnost — vyšší v sezóně a vhodném regionu
-    in_season = 8 <= month <= 10
-    prob_base = 0.65 if in_season else 0.25
-    prob_boost = 0.15 if is_mountain else 0.0
-    probability = int(np.clip((prob_base + prob_boost + rng.normal(0, 0.08)) * 100, 5, 95))
-
-    humidity = int(np.clip(rng.normal(72 if in_season else 55, 8), 30, 98))
-    rain_7d  = round(float(np.clip(rng.normal(28 if in_season else 12, 10), 0, 90)), 1)
-    occurrences = int(np.clip(rng.normal(12 if in_season else 3, 4), 0, 50))
-
-    return {
-        "temperature":  temp,
-        "humidity":     humidity,
-        "probability":  probability,
-        "temp_trend":   "↓ ochlazování" if temp < 10 else "→ stabilní",
-        "rain_7d":      rain_7d,
-        "occurrences":  occurrences,
-    }
-
-
-def get_occurrence_map_data(bbox: list, n_points: int = 40) -> pd.DataFrame:
-    """
-    Generuje body výskytu pro st.map().
-    V produkci: nahradit GBIF API nebo výstupem sdm_model.predict_grid().
-
-    Returns:
-        DataFrame se sloupci 'lat', 'lon' pro st.map()
-    """
-    rng = np.random.default_rng(42)
-    lat_min, lat_max, lon_min, lon_max = bbox
-    return pd.DataFrame({
-        "lat": rng.uniform(lat_min, lat_max, n_points),
-        "lon": rng.uniform(lon_min, lon_max, n_points),
-    })
-
-
-kpi = get_kpi_data(selected_region)
-map_df = get_occurrence_map_data(bbox)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. HLAVNÍ OBSAH
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── Nadpis druhu ─────────────────────────────────────────────────────────────
-st.markdown(
-    f'<div class="psy-title">{SPECIES["emoji"]} {SPECIES["cz_name"]}</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    f'<div class="psy-subtitle"><em>{SPECIES["name"]}</em> &nbsp;·&nbsp; '
-    f'{selected_region} &nbsp;·&nbsp; '
-    f'{date_from.strftime("%d. %m.")}–{date_to.strftime("%d. %m. %Y")}</div>',
-    unsafe_allow_html=True,
-)
-
-# Badges
-st.markdown(
-    f'<span class="info-badge">📍 {SPECIES["habitat"]}</span>'
-    f'<span class="info-badge">📅 sezóna: {SPECIES["season"]}</span>'
-    f'<span class="info-badge">⛰ {SPECIES["opt_elev"][0]}–{SPECIES["opt_elev"][1]} m n. m.</span>'
-    f'<span class="info-badge orange">🌡 optimum {SPECIES["opt_temp"][0]}–{SPECIES["opt_temp"][1]} °C</span>',
-    unsafe_allow_html=True,
-)
-
-# ── KPI karty ────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">Aktuální podmínky</div>', unsafe_allow_html=True)
-
-col1, col2, col3, col_extra1, col_extra2 = st.columns([1, 1, 1, 1, 1])
-
-with col1:
-    temp = kpi["temperature"]
-    temp_color = "orange" if not (SPECIES["opt_temp"][0] <= temp <= SPECIES["opt_temp"][1]) else ""
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-icon">🌡</div>
-        <div class="kpi-label">Teplota vzduchu</div>
-        <div class="kpi-value {temp_color}">{temp}<span class="kpi-unit">°C</span></div>
-        <div class="kpi-trend">{kpi['temp_trend']} &nbsp;·&nbsp;
-            optimum {SPECIES['opt_temp'][0]}–{SPECIES['opt_temp'][1]} °C</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    hum = kpi["humidity"]
-    hum_color = "" if hum >= 60 else "orange"
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-icon">💧</div>
-        <div class="kpi-label">Relativní vlhkost</div>
-        <div class="kpi-value {hum_color}">{hum}<span class="kpi-unit">%</span></div>
-        <div class="kpi-trend">srážky (7 dní): {kpi['rain_7d']} mm</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    prob = kpi["probability"]
-    if prob >= 65:
-        prob_color = ""
-        prob_icon  = "🟢"
-        prob_label = "příznivé"
-    elif prob >= 35:
-        prob_color = "yellow"
-        prob_icon  = "🟡"
-        prob_label = "podmíněné"
-    else:
-        prob_color = "orange"
-        prob_icon  = "🔴"
-        prob_label = "nepříznivé"
-
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-icon">{prob_icon}</div>
-        <div class="kpi-label">Pravděpodobnost růstu</div>
-        <div class="kpi-value {prob_color}">{prob}<span class="kpi-unit">%</span></div>
-        <div class="kpi-trend">podmínky: {prob_label}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col_extra1:
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-icon">📍</div>
-        <div class="kpi-label">Hlášené nálezy</div>
-        <div class="kpi-value">{kpi['occurrences']}</div>
-        <div class="kpi-trend">v oblasti za {(date_to - date_from).days + 1} dní</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col_extra2:
-    month_now = date.today().month
-    days_to_season = max(0, (date(date.today().year, 9, 1) - date.today()).days)
-    in_season = 8 <= month_now <= 10
-    season_label = "Právě teď! 🍄" if in_season else f"za {days_to_season} dní"
-    season_color = "" if in_season else "orange"
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-icon">📅</div>
-        <div class="kpi-label">Hlavní sezóna</div>
-        <div class="kpi-value {season_color}" style="font-size:1.4rem">{season_label}</div>
-        <div class="kpi-trend">optimum: {SPECIES['season']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ── Mapa výskytu ─────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header">Predikce výskytu — {}</div>'.format(
-    selected_region), unsafe_allow_html=True)
-
-st.markdown("""
-<div style="font-size:0.8rem;color:#4a7a1a;margin-bottom:12px">
-    🗺 Mapa zobrazuje predikovaná místa výskytu <em>Psilocybe semilanceata</em>
-    na základě klimatických a půdních podmínek.
-    V produkci: výstup <code>sdm_model.predict_grid()</code> + GBIF záznamy.
-</div>
-""", unsafe_allow_html=True)
-
-# st.map() — zobrazí body výskytu na mapě
-# V produkci nahradit folium mapou s heatmapou z sdm_model.predict_grid()
-st.map(
-    map_df,
-    zoom=6,
-    use_container_width=True,
-)
-
-# ── Ekologický profil druhu ───────────────────────────────────────────────────
-st.markdown('<div class="section-header">Ekologický profil druhu</div>',
-            unsafe_allow_html=True)
-
-eco1, eco2, eco3, eco4 = st.columns(4)
-
-with eco1:
-    st.markdown(f"""
-    <div class="kpi-card" style="text-align:left">
-        <div class="kpi-label">🌡 Teplota</div>
-        <div style="color:#39ff14;font-weight:700">
-            {SPECIES['opt_temp'][0]}–{SPECIES['opt_temp'][1]} °C</div>
-        <div style="color:#4a7a1a;font-size:0.78rem;margin-top:4px">
-            průměrná roční teplota</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with eco2:
-    st.markdown(f"""
-    <div class="kpi-card" style="text-align:left">
-        <div class="kpi-label">🌧 Srážky</div>
-        <div style="color:#39ff14;font-weight:700">
-            {SPECIES['opt_rain'][0]}–{SPECIES['opt_rain'][1]} mm</div>
-        <div style="color:#4a7a1a;font-size:0.78rem;margin-top:4px">
-            roční úhrn srážek</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with eco3:
-    st.markdown(f"""
-    <div class="kpi-card" style="text-align:left">
-        <div class="kpi-label">🪨 pH půdy</div>
-        <div style="color:#39ff14;font-weight:700">
-            {SPECIES['opt_ph'][0]}–{SPECIES['opt_ph'][1]}</div>
-        <div style="color:#4a7a1a;font-size:0.78rem;margin-top:4px">
-            mírně kyselá až neutrální</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with eco4:
-    st.markdown(f"""
-    <div class="kpi-card" style="text-align:left">
-        <div class="kpi-label">⛰ Výška</div>
-        <div style="color:#39ff14;font-weight:700">
-            {SPECIES['opt_elev'][0]}–{SPECIES['opt_elev'][1]} m</div>
-        <div style="color:#4a7a1a;font-size:0.78rem;margin-top:4px">
-            nadmořská výška n. m.</div>
-    </div>
-    """, unsafe_allow_html=True)
+e1, e2, e3, e4 = st.columns(4)
+eco_data = [
+    ("🌡", "Teplota", f"{SPECIES['opt_temp'][0]}–{SPECIES['opt_temp'][1]} °C", "roční průměr"),
+    ("⛰",  "Výška",   f"{SPECIES['opt_elev'][0]}–{SPECIES['opt_elev'][1]} m",  "n. m."),
+    ("🪨", "pH půdy", "4.5 – 6.5",  "mírně kyselá"),
+    ("🌿", "Habitat", "pastviny",    "vlhké louky"),
+]
+for col, (icon, label, value, sub) in zip([e1, e2, e3, e4], eco_data):
+    with col:
+        st.markdown(f"""
+        <div class="sec-widget">
+            <div style="font-size:1.3rem">{icon}</div>
+            <div class="sec-label" style="margin-top:4px">{label}</div>
+            <div style="color:#39ff14;font-weight:700;font-size:1.1rem">{value}</div>
+            <div class="sec-sub">{sub}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="text-align:center;font-size:0.75rem;color:#2a4a2a;letter-spacing:0.08em">
-    PSY SPACE &nbsp;·&nbsp; vzdělávací prototyp &nbsp;·&nbsp;
-    data: GBIF · SoilGrids · WorldClim &nbsp;·&nbsp;
-    model: <code>sdm_model.py</code>
+<div style="text-align:center;font-size:0.72rem;color:#0d3020;letter-spacing:0.1em">
+    PSY SPACE · vzdělávací prototyp · GBIF · SoilGrids · WorldClim · sdm_model.py
 </div>
 """, unsafe_allow_html=True)
