@@ -170,128 +170,191 @@ def tri(v, ol, oh, al, ah):
 
 def compute_probability(data: dict) -> tuple[float, dict]:
     """
-    Hlavní predikční funkce — kombinuje všechna reálná data.
+    Predikční model v2 — váhy přepočítány podle ekologie Psilocybe semilanceata.
 
-    Váhy jednotlivých faktorů jsou kalibrované na ekologii
-    Psilocybe semilanceata (Stamets 1996, GBIF occurrence modeling).
+    Nové váhování (inspirováno Stamets 1996 + GBIF SDM literatura):
+      Půdní vlastnosti      30 % — pH a textura určují zda mycelium vůbec může růst
+      Aktuální počasí       25 % — srážky + vlhkost = spouštěč plodnic
+      Typ prostředí         20 % — louka vs. město vs. les (tvrdá blokace)
+      Klimatická normála    10 % — dlouhodobý bioklimatický rámec
+      NDVI / vegetace       10 % — zdraví a hustota vegetace
+      Výška / sklon          5 % — modifikátor vlhkosti a teploty
+
+    Nové faktory:
+      - Vlhkost půdy z Open-Meteo (soil_moisture) — reálná, ne jen srážky
+      - Teplota půdy odhadnutá z teploty vzduchu s korekcí (-2°C pod povrchem)
+      - Canopy cover aproximovaný z NDVI (vysoké NDVI = hustý porost = stín)
     """
     month = date.today().month
     in_season = SPECIES["season"][0] <= month <= SPECIES["season"][1]
 
-    # ── Faktor 1: Aktuální teplota (váha 0.18) ──────────────────────────────
-    f_temp = tri(data["temp_now"], 6, 14, -2, 22)
+    # ── TVRDÁ BLOKACE — nevhodné land cover ─────────────────────────────────
+    land_cover = data.get("land_cover", "")
+    BLOCKED = {"Zastavěná plocha", "Vodní plocha", "Sníh / led",
+               "Holá půda", "Mangrovník"}
+    empty_factors = {k: 0.0 for k in [
+        "Teplota","Teplota půdy","Vlhkost vzduchu","Vlhkost půdy",
+        "Srážky 7d","Srážky 3d","pH půdy","Org. hmota",
+        "Textura půdy","Land cover","NDVI","Zastínění",
+        "Výška","Sklon/orientace","Klima","Sezóna",
+    ]}
+    if land_cover in BLOCKED:
+        return 0.0, empty_factors
+    if land_cover == "Orná půda":
+        # Okraje polí — max 8 %
+        return min(0.08, data.get("gbif_density", 0) * 2), empty_factors
 
-    # ── Faktor 2: Vlhkost vzduchu (váha 0.14) ───────────────────────────────
-    f_humidity = tri(data["humidity"], 75, 98, 45, 100)
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA A: PŮDNÍ VLASTNOSTI (30 %)
+    # ════════════════════════════════════════════════════════════════
 
-    # ── Faktor 3: Srážky 7 dní zpět (váha 0.16) ─────────────────────────────
-    # Lysohlávky reagují na srážky se zpožděním 5–10 dní!
-    f_rain7 = tri(data["rain_7d"], 15, 55, 3, 120)
+    # A1: pH půdy (12 %) — nejdůležitější půdní faktor
+    # Optimum 4.5–6.5, absolutní hranice 3.5–8.0
+    f_ph = tri(data["ph"], 4.5, 6.5, 3.5, 8.0)
 
-    # ── Faktor 4: Srážky 3 dny zpět (váha 0.08) ─────────────────────────────
-    f_rain3 = tri(data["rain_3d"], 5, 25, 0, 60)
-
-    # ── Faktor 5: Vlhkost půdy (váha 0.10) ──────────────────────────────────
-    f_soil_moist = tri(data.get("soil_moisture", 0.3), 0.25, 0.6, 0.1, 0.8)
-
-    # ── Faktor 6: pH půdy (váha 0.08) ───────────────────────────────────────
-    f_ph = tri(data["ph"], 4.5, 6.5, 3.0, 8.0)
-
-    # ── Faktor 7: Organická hmota půdy (váha 0.06) ──────────────────────────
+    # A2: Organická hmota SOC (10 %) — mycelium potřebuje rozkládající se materiál
     f_soc = tri(data["soc"], 15, 60, 3, 100)
 
-    # ── Faktor 8: Nadmořská výška (váha 0.06) ───────────────────────────────
-    f_elev = tri(data["elev"], 100, 800, 30, 1400)
-
-    # ── Faktor 9: Sklon svahu (váha 0.04) ───────────────────────────────────
-    # Mírný sklon = lepší odvodnění = méně záplav
-    f_slope = tri(data.get("slope", 5), 2, 20, 0, 40)
-
-    # ── Faktor 10: Severní orientace (váha 0.04) ─────────────────────────────
-    # Sever = více vlhkosti a stínu
-    north = data.get("north_factor", 0.5)
-    f_north = (north + 1) / 2  # převod z [-1,1] na [0,1]
-
-    # ── Faktor 11: Land cover (váha 0.10) ───────────────────────────────────
-    f_landcover = data.get("land_suitability", 0.5)
-
-    # ── Faktor 12: NDVI vegetační index (váha 0.04) ──────────────────────────
-    f_ndvi = tri(data.get("ndvi", 0.55), 0.4, 0.8, 0.1, 0.95)
-
-    # ── Faktor 13: Sezóna (váha 0.08) ───────────────────────────────────────
-    f_season = 1.0 if in_season else 0.12
-
-    # ── Váhovaný součet ──────────────────────────────────────────────────────
-    base = (
-        0.18 * f_temp       +
-        0.14 * f_humidity   +
-        0.16 * f_rain7      +
-        0.08 * f_rain3      +
-        0.10 * f_soil_moist +
-        0.08 * f_ph         +
-        0.06 * f_soc        +
-        0.06 * f_elev       +
-        0.04 * f_slope      +
-        0.04 * f_north      +
-        0.10 * f_landcover  +
-        0.04 * f_ndvi       +
-        0.08 * f_season
+    # A3: Textura půdy (8 %) — jíl 15-45 % = dobrá retence vlhkosti
+    # kombinace clay + sand pro optimální texturu
+    clay = data.get("clay", 28.0)
+    sand = data.get("sand", 35.0)
+    silt = max(0, 100 - clay - sand)  # prach = zbytek
+    f_texture = (
+        tri(clay, 15, 45, 5, 65) * 0.5 +
+        tri(silt, 20, 50, 5, 70) * 0.3 +
+        tri(sand, 10, 40, 3, 70) * 0.2
     )
 
-    # ── TVRDÁ BLOKACE — nevhodné land cover ─────────────────────────────────
-    # Město, voda, orná půda = lysohlávky se tam nikdy nevyskytují
-    land_cover = data.get("land_cover", "")
-    BLOCKED_COVERS = {"Zastavěná plocha", "Vodní plocha", "Sníh / led",
-                      "Holá půda", "Mangrovník"}
-    if land_cover in BLOCKED_COVERS:
-        factors = {k: 0.0 for k in [
-            "Teplota","Vlhkost","Srážky 7d","Srážky 3d","Vlhkost půdy",
-            "pH půdy","Org. hmota","Výška","Sklon","Orientace S",
-            "Land cover","NDVI","Sezóna",
-        ]}
-        factors["Land cover"] = 0.0
-        return 0.0, factors
+    soil_score = 0.12 * f_ph + 0.10 * f_soc + 0.08 * f_texture
 
-    # Orná půda — velmi nízká ale ne nulová šance (okraje polí)
-    if land_cover == "Orná půda":
-        base *= 0.05
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA B: AKTUÁLNÍ POČASÍ (25 %)
+    # ════════════════════════════════════════════════════════════════
 
-    # ── GBIF boost (historická hustota nálezů) ───────────────────────────────
-    gbif_boost = min(0.12, data.get("gbif_count", 0) * 0.006)
+    # B1: Teplota vzduchu (5 %) — méně důležitá než teplota půdy
+    f_temp_air = tri(data["temp_now"], 6, 14, -2, 22)
 
-    # ── Penalizace za extrémní podmínky ──────────────────────────────────────
-    penalty = 1.0
-    if data["temp_now"] > 22 or data["temp_now"] < 0:  penalty *= 0.3
-    if data["humidity"] < 45:                           penalty *= 0.5
-    if data.get("wind", 0) > 15:                        penalty *= 0.8
-    if data.get("water_deficit", 0) > 30:               penalty *= 0.7
+    # B2: Teplota půdy — odhad z teploty vzduchu (8 %)
+    # Teplota půdy bývá o 2–4°C nižší než vzduch, s menší amplitudou
+    temp_soil = data["temp_now"] * 0.85 - 1.5
+    f_temp_soil = tri(temp_soil, 5, 12, 0, 18)
 
-    # Oprava nereálně vysokého sklonu (OpenTopography parsing artefakt)
-    slope = data.get("slope", 5.0)
+    # B3: Reálná vlhkost půdy z Open-Meteo (7 %)
+    # soil_moisture_0_to_1cm je v m³/m³ (0–1)
+    soil_moist = data.get("soil_moisture", 0.3)
+    f_soil_moist = tri(soil_moist, 0.25, 0.55, 0.08, 0.75)
+
+    # B4: Srážky 7 dní zpět (5 %) — spouštěč plodnic
+    f_rain7 = tri(data["rain_7d"], 15, 55, 3, 120)
+
+    weather_score = (
+        0.05 * f_temp_air +
+        0.08 * f_temp_soil +
+        0.07 * f_soil_moist +
+        0.05 * f_rain7
+    )
+
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA C: TYP PROSTŘEDÍ — ESA WorldCover (20 %)
+    # ════════════════════════════════════════════════════════════════
+    f_landcover = data.get("land_suitability", 0.5)
+    landcover_score = 0.20 * f_landcover
+
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA D: NDVI + ZASTÍNĚNÍ (10 %)
+    # ════════════════════════════════════════════════════════════════
+
+    ndvi = data.get("ndvi", 0.55)
+
+    # D1: NDVI (6 %) — zdraví vegetace
+    f_ndvi = tri(ndvi, 0.40, 0.80, 0.10, 0.95)
+
+    # D2: Zastínění / canopy cover aproximace (4 %)
+    # Vysoké NDVI (>0.7) = hustý porost = udržuje vlhkost
+    # Optimum pro lysohlávky: středně hustá vegetace (louky se stromy)
+    f_canopy = tri(ndvi, 0.45, 0.72, 0.20, 0.90)
+
+    ndvi_score = 0.06 * f_ndvi + 0.04 * f_canopy
+
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA E: KLIMATICKÁ NORMÁLA WorldClim (10 %)
+    # ════════════════════════════════════════════════════════════════
+
+    # E1: Roční průměrná teplota (5 %)
+    f_bio01 = tri(data.get("bio01", 9.0), 6, 12, 2, 18)
+
+    # E2: Roční srážky (5 %)
+    f_bio12 = tri(data.get("bio12", 700), 600, 1400, 300, 2200)
+
+    climate_score = 0.05 * f_bio01 + 0.05 * f_bio12
+
+    # ════════════════════════════════════════════════════════════════
+    # SKUPINA F: VÝŠKA A TERÉN (5 %)
+    # ════════════════════════════════════════════════════════════════
+
+    # F1: Nadmořská výška (2 %)
+    f_elev = tri(data["elev"], 100, 800, 30, 1400)
+
+    # F2: Sklon svahu — oprava nereálných hodnot (1.5 %)
+    slope = data.get("slope", 8.0)
     if slope > 45:
-        # Nereálný sklon — ignoruj a použij průměr pro region
-        data["slope"] = 8.0
-        f_slope = tri(8.0, 2, 20, 0, 40)
+        slope = 8.0  # artefakt parsování — použij průměr
+    f_slope = tri(slope, 2, 20, 0, 40)
 
-    prob = float(np.clip((base + gbif_boost) * penalty, 0.0, 1.0))
+    # F3: Severní orientace — vlhčí mikroklima (1.5 %)
+    north = data.get("north_factor", 0.5)
+    f_north = (north + 1) / 2
 
-    # Slovník skóre pro zobrazení
+    terrain_score = 0.02 * f_elev + 0.015 * f_slope + 0.015 * f_north
+
+    # ════════════════════════════════════════════════════════════════
+    # SEZÓNA — multiplikátor (ne additivní váha)
+    # ════════════════════════════════════════════════════════════════
+    # Mimo sezónu se pravděpodobnost snižuje na 15 %, ne na 0
+    season_mult = 1.0 if in_season else 0.15
+
+    # ════════════════════════════════════════════════════════════════
+    # CELKOVÉ SKÓRE
+    # ════════════════════════════════════════════════════════════════
+    base = (
+        soil_score      +   # 30 %
+        weather_score   +   # 25 %
+        landcover_score +   # 20 %
+        ndvi_score      +   # 10 %
+        climate_score   +   # 10 %
+        terrain_score       #  5 %
+    )                       # = 100 %
+
+    # GBIF boost — historické nálezy v okolí
+    gbif_boost = min(0.10, data.get("gbif_count", 0) * 0.005)
+
+    # Penalizace za extrémní podmínky
+    penalty = 1.0
+    if data["temp_now"] > 24 or data["temp_now"] < -2: penalty *= 0.25
+    if data.get("humidity", 70) < 40:                  penalty *= 0.45
+    if data.get("wind", 0) > 15:                       penalty *= 0.80
+    if data.get("water_deficit", 0) > 35:              penalty *= 0.65
+
+    prob = float(np.clip((base + gbif_boost) * season_mult * penalty, 0.0, 1.0))
+
     factors = {
-        "Teplota":       round(f_temp, 2),
-        "Vlhkost":       round(f_humidity, 2),
-        "Srážky 7d":     round(f_rain7, 2),
-        "Srážky 3d":     round(f_rain3, 2),
-        "Vlhkost půdy":  round(f_soil_moist, 2),
-        "pH půdy":       round(f_ph, 2),
-        "Org. hmota":    round(f_soc, 2),
-        "Výška":         round(f_elev, 2),
-        "Sklon":         round(f_slope, 2),
-        "Orientace S":   round(f_north, 2),
-        "Land cover":    round(f_landcover, 2),
-        "NDVI":          round(f_ndvi, 2),
-        "Sezóna":        round(f_season, 2),
+        "pH půdy":        round(f_ph, 2),
+        "Org. hmota":     round(f_soc, 2),
+        "Textura půdy":   round(f_texture, 2),
+        "Teplota půdy":   round(f_temp_soil, 2),
+        "Vlhkost půdy":   round(f_soil_moist, 2),
+        "Srážky 7d":      round(f_rain7, 2),
+        "Land cover":     round(f_landcover, 2),
+        "NDVI":           round(f_ndvi, 2),
+        "Zastínění":      round(f_canopy, 2),
+        "Klima (bio01)":  round(f_bio01, 2),
+        "Klima (bio12)":  round(f_bio12, 2),
+        "Výška":          round(f_elev, 2),
+        "Sklon":          round(f_slope, 2),
     }
     return prob, factors
+
 
 
 def prob_class(p):
