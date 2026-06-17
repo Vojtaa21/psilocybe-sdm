@@ -273,7 +273,7 @@ def generate_heatmap_points(
     bbox: list,          # [lat_min, lon_min, lat_max, lon_max]
     region_name: str,    # klíč pro cache invalidaci při změně regionu
     month: int,          # měsíc pro cache invalidaci při změně sezóny
-    resolution: int = 18 # počet bodů na stranu mřížky
+    resolution: int = 30 # počet bodů na stranu mřížky — více = plynulejší
 ) -> list[list]:
     """
     Generuje mřížku bodů s odhadnutou pravděpodobností výskytu.
@@ -385,7 +385,7 @@ with st.sidebar:
     show_heatmap = st.checkbox("Zobrazit vrstvu pravděpodobnosti", value=True,
                                help="Barevná heatmapa odhadnuté vhodnosti prostředí")
     heatmap_resolution = st.select_slider(
-        "Hustota mřížky", options=[10, 14, 18, 22, 26], value=18,
+        "Hustota mřížky", options=[20, 25, 30, 35, 40], value=30,
         help="Vyšší = přesnější ale pomalejší"
     )
     show_gbif = st.checkbox("Zobrazit GBIF nálezy", value=True,
@@ -577,21 +577,24 @@ m = folium.Map(
 if show_heatmap and heatmap_points:
     HeatMap(
         data=heatmap_points,
-        # Gradient od tmavě zelené (nízká) po červenou (vysoká)
+        # Gradient: průhledná → tmavě zelená → žlutá → červená
         gradient={
             0.0:  "transparent",
-            0.15: "#004400",    # velmi nízká — tmavě zelená
-            0.30: "#008800",    # nízká — zelená
-            0.45: "#aacc00",    # střední — žlutozelená
-            0.60: "#ffaa00",    # střední-vysoká — amber
-            0.75: "#ff5500",    # vysoká — oranžová
+            0.20: "#004400",    # velmi nízká — tmavě zelená
+            0.35: "#008800",    # nízká — zelená
+            0.50: "#aacc00",    # střední — žlutozelená
+            0.65: "#ffaa00",    # střední-vysoká — amber
+            0.80: "#ff5500",    # vysoká — oranžová
             1.0:  "#ff0000",    # velmi vysoká — červená
         },
-        min_opacity=0.25,
-        max_opacity=0.75,
-        radius=22,              # poloměr vlivu každého bodu v pixelech
-        blur=18,                # rozmazání pro plynulý přechod
-        max_zoom=1,
+        min_opacity=0.30,
+        max_opacity=0.80,
+        # radius a blur musí být velké pro nízký zoom (celá ČR = zoom 7)
+        # při zoomu 7 je 1 stupeň ~80 px → mřížka 18×18 = krok ~0.2° = ~16 px
+        # radius musí překrýt mezery mezi body = alespoň 20 px
+        radius=28,
+        blur=25,
+        max_zoom=10,
         name="🌡 Vrstva pravděpodobnosti",
     ).add_to(m)
 
