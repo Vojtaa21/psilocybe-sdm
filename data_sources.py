@@ -288,31 +288,48 @@ def _nominatim_land_cover(lat: float, lon: float) -> dict:
         addr     = data.get("address", {})
         osm_type = data.get("type", "")
 
-        city_keys   = {"city","town","village","suburb","neighbourhood",
-                       "building","road","house_number","pedestrian",
-                       "motorway","retail","commercial","industrial"}
-        forest_keys = {"forest","wood","nature_reserve","national_park"}
-        farm_keys   = {"farm","farmland","farmyard","orchard","vineyard"}
-        meadow_keys = {"meadow","grassland","grass","pasture","park"}
-        water_keys  = {"water","river","lake","pond","reservoir","stream"}
+        # Skutečně zastavěné plochy — jen husté urbánní oblasti
+        # POZOR: "village" a "hamlet" záměrně vynecháváme —
+        # kliknutí na louku u vesnice vrátí village tag v adrese,
+        # ale to neznamená že jsme v zástavbě!
+        # Klíčový rozdíl: OSM "class" a "type" určují co JE bod,
+        # zatímco addr klíče říkají jen kde se nachází (i louka má adresu)
+        osm_class_type = {osm_class, osm_type}
 
-        vals = set(addr.keys()) | {osm_type}
-        if vals & city_keys:
+        # Zastavěná plocha = pouze pokud JE bod přímo budova/silnice/komerční zona
+        truly_built = {"building","house","apartments","commercial","retail",
+                       "industrial","construction","motorway","trunk","primary",
+                       "secondary","tertiary","residential","pedestrian",
+                       "footway","cycleway","railway","aeroway"}
+
+        # Příroda/vegetace — pokud JE bod přímo příroda
+        forest_types = {"forest","wood","nature_reserve","national_park",
+                        "protected_area","heath","scrub"}
+        farm_types   = {"farm","farmland","farmyard","orchard","vineyard",
+                        "allotments","greenhouse_horticulture"}
+        meadow_types = {"meadow","grassland","grass","pasture",
+                        "recreation_ground","pitch","village_green"}
+        water_types  = {"water","river","lake","pond","reservoir",
+                        "stream","bay","wetland","marsh"}
+
+        # Rozhoduj podle toho CO bod IS (class/type), ne kde se nachází (addr)
+        if osm_class_type & truly_built:
             return {"land_cover":"Zastavěná plocha","suitability":0.00,
                     "ok":True,"source":"OSM Nominatim"}
-        elif vals & water_keys:
+        elif osm_class_type & water_types or addr.get("natural") in water_types:
             return {"land_cover":"Vodní plocha",    "suitability":0.00,
                     "ok":True,"source":"OSM Nominatim"}
-        elif vals & farm_keys:
+        elif osm_class_type & farm_types or addr.get("landuse") in farm_types:
             return {"land_cover":"Orná půda",       "suitability":0.05,
                     "ok":True,"source":"OSM Nominatim"}
-        elif vals & forest_keys:
+        elif osm_class_type & forest_types or addr.get("natural") in {"wood","scrub"}:
             return {"land_cover":"Lesní porost",    "suitability":0.25,
                     "ok":True,"source":"OSM Nominatim"}
-        elif vals & meadow_keys:
+        elif osm_class_type & meadow_types or addr.get("landuse") in {"grass","meadow"}:
             return {"land_cover":"Louky / pastviny","suitability":0.90,
                     "ok":True,"source":"OSM Nominatim"}
         else:
+            # Výchozí: příroda/smíšené — lepší než falešná zastavěná plocha
             return {"land_cover":"Příroda / smíšené","suitability":0.45,
                     "ok":True,"source":"OSM Nominatim"}
     except Exception:
