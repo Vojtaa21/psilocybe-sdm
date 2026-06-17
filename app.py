@@ -230,7 +230,7 @@ def compute_probability(data: dict) -> tuple[float, dict]:
     if data.get("wind", 0) > 15:                       penalty *= 0.80
     if data.get("water_deficit", 0) > 35:              penalty *= 0.65
 
-    season_mult = 1.0 if in_season else 0.15
+    season_mult = 1.0 if in_season else 0.25
     prob = float(np.clip((base + gbif_boost) * season_mult * penalty, 0.0, 1.0))
 
     factors = {
@@ -548,7 +548,7 @@ gbif_records = fetch_gbif_for_region(
 m = folium.Map(
     location=[region_center[0], region_center[1]],
     zoom_start=region_center[2],
-    tiles="CartoDB dark_matter",   # tmavý podklad pro vesmírně-lesní estetiku
+    tiles="CartoDB positron",      # světlý podklad — lépe viditelné vrstvy
     prefer_canvas=True,
 )
 
@@ -568,11 +568,11 @@ if show_clusters and gbif_records:
         folium.Circle(
             location=[lat_g, lon_g],
             radius=radius_m,
-            color="#39ff14",
+            color="#1b5e20",
             fill=True,
-            fill_color="#39ff14",
+            fill_color="#388e3c",
             fill_opacity=opacity,
-            weight=0,           # bez okraje — plynulý vzhled
+            weight=0.5,
         ).add_to(cluster_layer)
     cluster_layer.add_to(m)
 
@@ -601,10 +601,10 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
     d   = st.session_state.all_data or {}
 
     hex_map = {
-        "high":   "#39ff14",
-        "medium": "#ffd700",
-        "low":    "#ff8c00",
-        "none":   "#666666",
+        "high":   "#1b5e20",
+        "medium": "#f57f17",
+        "low":    "#bf360c",
+        "none":   "#616161",
     }
     col_map = {"high": "green", "medium": "orange", "low": "red", "none": "gray"}
     hx = hex_map[cls]
@@ -612,8 +612,8 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
     # ── Popup HTML s kompletními daty bodu ───────────────────────────────────
     popup_html = f"""
     <div style="font-family:'Courier New',monospace;min-width:230px;
-                max-width:260px;padding:8px;background:#111;color:#d0f0d0;
-                border-radius:8px">
+                max-width:260px;padding:8px;background:#fff;color:#1a1a1a;
+                border-radius:8px;border:1px solid #e0e0e0">
         <div style="font-weight:700;font-size:1.3rem;color:{hx};
                     margin-bottom:6px;text-align:center">
             {int(p*100)} %
@@ -624,39 +624,39 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
         </div>
         <hr style="border-color:#333;margin:6px 0">
         <table style="width:100%;font-size:0.75rem;border-collapse:collapse">
-            <tr><td style="color:#666;padding:2px 0">🌡 Teplota</td>
-                <td style="color:#d0f0d0;text-align:right">
+            <tr><td style="color:#555;padding:2px 0">🌡 Teplota</td>
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('temp_now','–')} °C</b></td></tr>
             <tr><td style="color:#666">💧 Vlhkost</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('humidity','–')} %</b></td></tr>
             <tr><td style="color:#666">🌧 Srážky 7d</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('rain_7d','–')} mm</b></td></tr>
             <tr><td style="color:#666">🪨 pH půdy</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('ph','–')}</b></td></tr>
             <tr><td style="color:#666">🌱 Org. hmota</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('soc','–')} g/kg</b></td></tr>
             <tr><td style="color:#666">⛰ Výška</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{int(d.get('elev',0))} m n.m.</b></td></tr>
             <tr><td style="color:#666">📐 Sklon</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('slope','–')}°</b></td></tr>
             <tr><td style="color:#666">🌿 NDVI</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('ndvi','–')}</b></td></tr>
             <tr><td style="color:#666">🌍 Prostředí</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('land_cover','–')}</b></td></tr>
             <tr><td style="color:#666">📍 GBIF</td>
-                <td style="color:#d0f0d0;text-align:right">
+                <td style="color:#1a1a1a;text-align:right">
                     <b>{d.get('gbif_count',0)} nálezů</b></td></tr>
         </table>
         <hr style="border-color:#333;margin:6px 0">
-        <div style="font-size:0.68rem;color:#444;text-align:center">
+        <div style="font-size:0.68rem;color:#888;text-align:center">
             {st.session_state.clicked_lat:.5f}°N ·
             {st.session_state.clicked_lon:.5f}°E
         </div>
@@ -686,29 +686,29 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
 # ── Legenda mapy ──────────────────────────────────────────────────────────────
 legend_html = """
 <div style="position:fixed;bottom:24px;left:16px;
-            background:#050d05ee;padding:12px 16px;
-            border-radius:12px;border:1px solid #0d3020;
+            background:rgba(255,255,255,0.95);padding:12px 16px;
+            border-radius:12px;border:1px solid #c8e6c9;
             font-size:12px;z-index:1000;
-            box-shadow:0 4px 20px rgba(0,255,0,0.08)">
-    <div style="font-weight:700;margin-bottom:8px;color:#39ff14;
-                letter-spacing:0.1em;font-size:11px">
+            box-shadow:0 2px 10px rgba(0,0,0,0.12)">
+    <div style="font-weight:700;margin-bottom:8px;color:#1b5e20;
+                letter-spacing:0.05em;font-size:11px">
         🍄 HISTORICKÉ NÁLEZY
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <div style="width:18px;height:18px;border-radius:50%;
-                    background:#39ff1430;border:1px solid #39ff1460;
+                    background:#38823840;border:1px solid #388e3c;
                     flex-shrink:0"></div>
-        <span style="color:#ccc">Oblast s více nálezy</span>
+        <span style="color:#333">Oblast s více nálezy</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <div style="width:10px;height:10px;border-radius:50%;
-                    background:#39ff14;flex-shrink:0"></div>
-        <span style="color:#ccc">Konkrétní GBIF nález</span>
+                    background:#2e7d32;flex-shrink:0"></div>
+        <span style="color:#333">Konkrétní GBIF nález</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
         <div style="width:10px;height:10px;border-radius:50%;
-                    background:#ff8c00;flex-shrink:0"></div>
-        <span style="color:#ccc">Tvůj vybraný bod</span>
+                    background:#e65100;flex-shrink:0"></div>
+        <span style="color:#333">Tvůj vybraný bod</span>
     </div>
 </div>
 """
