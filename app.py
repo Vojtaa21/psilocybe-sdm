@@ -6,7 +6,7 @@ Nové: barevná heatmapa regionu + dynamické polygony + vylepšený popup
 import streamlit as st
 import numpy as np
 import folium
-from folium.plugins import HeatMap
+from folium.plugins import HeatMap, MarkerCluster
 from streamlit_folium import st_folium
 from datetime import date, timedelta
 
@@ -269,61 +269,50 @@ def prob_label(p):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def generate_heatmap_points(
-    bbox: list,          # [lat_min, lon_min, lat_max, lon_max]
-    region_name: str,    # klíč pro cache invalidaci při změně regionu
-    month: int,          # měsíc pro cache invalidaci při změně sezóny
-    resolution: int = 30 # počet bodů na stranu mřížky — více = plynulejší
-) -> list[list]:
+def fetch_gbif_for_region(bbox: list, region_name: str) -> list[dict]:
     """
-    Generuje mřížku bodů s odhadnutou pravděpodobností výskytu.
-
-    RYCHLÝ ODHAD (bez API volání) — používá pouze:
-      - WorldClim interpolaci (teplota, srážky)
-      - Aproximaci vlhkosti půdy podle srážkového vzoru
-      - Sezónní faktor
-      - Výškový gradient (přibližný)
-
-    Výstup: seznam [lat, lon, weight] pro folium HeatMap plugin.
-    weight je normalizovaný 0–1 (folium HeatMap očekává 0–1).
-
-    Poznámka: Přesná predikce pro konkrétní bod se provede až po kliknutí
-    (fetch_all + compute_probability) — to stáhne reálná data ze všech API.
+    Stáhne GBIF záznamy výskytu lysohlávek pro celý region.
+    Cachované na 1 hodinu — nepřenačítá se při každém kliknutí.
+    Vrátí seznam {lat, lon, year} pro vykreslení na mapě.
     """
-    lat_min, lon_min, lat_max, lon_max = bbox
-    lats = np.linspace(lat_min, lat_max, resolution)
-    lons = np.linspace(lon_min, lon_max, resolution)
+    import requests
+    try:
+        lat_min, lon_min, lat_max, lon_max = bbox
+        resp = requests.get(
+            "https://api.gbif.org/v1/occurrence/search",
+            params={
+                "scientificName":   "Psilocybe semilanceata",
+                "decimalLatitude":  f"{lat_min},{lat_max}",
+                "decimalLongitude": f"{lon_min},{lon_max}",
+                "hasCoordinate":    True,
+                "hasGeospatialIssue": False,
+                "limit":            300,
+            },
+            timeout=10,
+        )
+        records = resp.json().get("results", [])
+        return [
+            {
+                "lat":  r["decimalLatitude"],
+                "lon":  r["decimalLongitude"],
+                "year": r.get("year", ""),
+                "species": r.get("species", "Psilocybe semilanceata"),
+            }
+            for r in records
+            if r.get("decimalLatitude") and r.get("decimalLongitude")
+        ]
+    except Exception:
+        return []
 
-    in_season = 8 <= month <= 10
-    season_mult = 1.0 if in_season else 0.20
 
-    points = []
-    rng = np.random.default_rng(hash(region_name) % (2**31))
-
-    for lat in lats:
-        for lon in lons:
-            # Klimatická interpolace (WorldClim aproximace)
-            lat_n = float(np.clip((lat - 47.5) / (51.2 - 47.5), 0, 1))
-            lon_n = float(np.clip((lon - 12.0) / (22.5 - 12.0), 0, 1))
-            bio01 = 10.5 - lat_n * 4.0 + lon_n * 0.5   # roční teplota
-            bio12 = 580 + lon_n * 220 + lat_n * 80       # roční srážky
-
-            # Rychlý skóre bez API
-            f_temp  = tri(bio01,  6, 12,  2, 18)
-            f_rain  = tri(bio12, 600, 1400, 300, 2200)
-            f_elev  = tri(300 + lat_n * 200, 100, 800, 30, 1400)
-
-            # Šum pro realističtější vzhled (simuluje lokální variabilitu půdy)
-            noise = float(rng.uniform(-0.08, 0.08))
-
-            score = (0.40 * f_temp + 0.40 * f_rain + 0.20 * f_elev + noise)
-            score = float(np.clip(score * season_mult, 0.0, 1.0))
-
-            # Přidej bod pouze pokud má nenulové skóre (optimalizace výkonu)
-            if score > 0.05:
-                points.append([lat, lon, score])
-
-    return points
+def compute_local_density(records: list[dict], lat: float, lon: float,
+                          radius_deg: float = 0.5) -> int:
+    """Spočítá počet GBIF nálezů v okolí bodu — pro velikost kruhu."""
+    return sum(
+        1 for r in records
+        if abs(r["lat"] - lat) < radius_deg
+        and abs(r["lon"] - lon) < radius_deg
+    )
 
 
 def prob_to_color_hex(p: float) -> str:
@@ -380,16 +369,12 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Ovládání heatmapy
+    # Ovládání mapy
     st.markdown("### Vizualizace mapy")
-    show_heatmap = st.checkbox("Zobrazit vrstvu pravděpodobnosti", value=True,
-                               help="Barevná heatmapa odhadnuté vhodnosti prostředí")
-    heatmap_resolution = st.select_slider(
-        "Hustota mřížky", options=[20, 25, 30, 35, 40], value=30,
-        help="Vyšší = přesnější ale pomalejší"
-    )
-    show_gbif = st.checkbox("Zobrazit GBIF nálezy", value=True,
-                            help="Reálné historické záznamy výskytu")
+    show_clusters = st.checkbox("Zobrazit oblasti výskytu", value=True,
+                                help="Zvýrazněné oblasti s historickými nálezy")
+    show_gbif = st.checkbox("Zobrazit jednotlivé nálezy", value=True,
+                            help="Každý historický GBIF záznam jako bod")
 
     st.markdown("---")
     st.markdown("### Datové zdroje")
@@ -552,16 +537,12 @@ st.markdown("""
     — červená = nejvyšší pravděpodobnost, tmavě zelená = nejnižší.
 </div>""", unsafe_allow_html=True)
 
-# ── Generuj heatmap body (cachované) ─────────────────────────────────────────
-# Cache se invaliduje při změně regionu nebo měsíce (sezóna)
-heatmap_points = []
-if show_heatmap:
-    heatmap_points = generate_heatmap_points(
-        bbox=region_bbox,
-        region_name=selected_region,
-        month=selected_month,
-        resolution=heatmap_resolution,
-    )
+# ── Načti GBIF záznamy pro region (cachované) ────────────────────────────────
+# Cache se invaliduje při změně regionu — nepřenačítá se při kliknutí na mapu
+gbif_records = fetch_gbif_for_region(
+    bbox=region_bbox,
+    region_name=selected_region,
+)
 
 # ── Sestav folium mapu ────────────────────────────────────────────────────────
 m = folium.Map(
@@ -571,72 +552,46 @@ m = folium.Map(
     prefer_canvas=True,
 )
 
-# ── VRSTVA 1: HeatMap pravděpodobnosti ───────────────────────────────────────
-# Folium HeatMap plugin interpoluje body do spojité barevné vrstvy.
-# gradient: 0.0 = transparentní, 0.4 = tmavě zelená, 0.7 = žlutá, 1.0 = červená
-if show_heatmap and heatmap_points:
-    HeatMap(
-        data=heatmap_points,
-        # Gradient: průhledná → tmavě zelená → žlutá → červená
-        gradient={
-            0.0:  "transparent",
-            0.20: "#004400",    # velmi nízká — tmavě zelená
-            0.35: "#008800",    # nízká — zelená
-            0.50: "#aacc00",    # střední — žlutozelená
-            0.65: "#ffaa00",    # střední-vysoká — amber
-            0.80: "#ff5500",    # vysoká — oranžová
-            1.0:  "#ff0000",    # velmi vysoká — červená
-        },
-        min_opacity=0.30,
-        max_opacity=0.80,
-        # radius a blur musí být velké pro nízký zoom (celá ČR = zoom 7)
-        # při zoomu 7 je 1 stupeň ~80 px → mřížka 18×18 = krok ~0.2° = ~16 px
-        # radius musí překrýt mezery mezi body = alespoň 20 px
-        radius=28,
-        blur=25,
-        max_zoom=10,
-        name="🌡 Vrstva pravděpodobnosti",
-    ).add_to(m)
+# ── VRSTVA 1: Oblasti s vyšší pravděpodobností ───────────────────────────────
+# Průhledné kruhy kolem míst s více nálezy = zvýrazněné oblasti výskytu.
+# Velikost kruhu odpovídá hustotě historických nálezů v okolí.
+if show_clusters and gbif_records:
+    cluster_layer = folium.FeatureGroup(name="🟢 Oblasti výskytu", show=True)
+    for rec in gbif_records:
+        lat_g = rec["lat"]
+        lon_g = rec["lon"]
+        # Počet nálezů v okolí 0.5° → určuje velikost a opacity kruhu
+        density = compute_local_density(gbif_records, lat_g, lon_g, 0.4)
+        # Větší hustota = větší a výraznější kruh
+        radius_m  = min(12000, 3000 + density * 1200)
+        opacity   = min(0.45, 0.10 + density * 0.04)
+        folium.Circle(
+            location=[lat_g, lon_g],
+            radius=radius_m,
+            color="#39ff14",
+            fill=True,
+            fill_color="#39ff14",
+            fill_opacity=opacity,
+            weight=0,           # bez okraje — plynulý vzhled
+        ).add_to(cluster_layer)
+    cluster_layer.add_to(m)
 
-# ── VRSTVA 2: GBIF historické nálezy ─────────────────────────────────────────
-if show_gbif:
-    # Načti GBIF data pro viditelnou oblast
-    try:
-        import requests
-        bbox = region_bbox
-        resp = requests.get(
-            "https://api.gbif.org/v1/occurrence/search",
-            params={
-                "scientificName":   "Psilocybe semilanceata",
-                "decimalLatitude":  f"{bbox[0]},{bbox[2]}",
-                "decimalLongitude": f"{bbox[1]},{bbox[3]}",
-                "hasCoordinate":    True,
-                "limit":            200,
-            },
-            timeout=8,
-        )
-        gbif_records = resp.json().get("results", [])
-
-        # Skupinová vrstva pro GBIF body
-        gbif_layer = folium.FeatureGroup(name="📍 GBIF nálezy", show=True)
-        for rec in gbif_records:
-            lat_g = rec.get("decimalLatitude")
-            lon_g = rec.get("decimalLongitude")
-            year  = rec.get("year", "")
-            if lat_g and lon_g:
-                folium.CircleMarker(
-                    location=[lat_g, lon_g],
-                    radius=4,
-                    color="#ffffff",
-                    weight=1,
-                    fill=True,
-                    fill_color="#39ff14",
-                    fill_opacity=0.85,
-                    tooltip=f"🍄 GBIF nález · {year}",
-                ).add_to(gbif_layer)
-        gbif_layer.add_to(m)
-    except Exception:
-        pass
+# ── VRSTVA 2: Jednotlivé GBIF nálezy ─────────────────────────────────────────
+# Každý historický záznam jako malý zelený bod s tooltipem.
+if show_gbif and gbif_records:
+    gbif_layer = folium.FeatureGroup(name="📍 GBIF nálezy", show=True)
+    for rec in gbif_records:
+        folium.CircleMarker(
+            location=[rec["lat"], rec["lon"]],
+            radius=4,
+            color="#ffffff",
+            weight=1,
+            fill=True,
+            fill_color="#39ff14",
+            fill_opacity=0.90,
+            tooltip=f"🍄 {rec.get('species','Psilocybe')} · {rec.get('year','')}",
+        ).add_to(gbif_layer)
+    gbif_layer.add_to(m)
 
 # ── VRSTVA 3: Marker kliknutého bodu s popup ─────────────────────────────────
 # Po kliknutí se zobrazí přesná pravděpodobnost + všechna data v popup okně
@@ -731,44 +686,29 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
 # ── Legenda mapy ──────────────────────────────────────────────────────────────
 legend_html = """
 <div style="position:fixed;bottom:24px;left:16px;
-            background:#050d05ee;padding:14px 18px;
+            background:#050d05ee;padding:12px 16px;
             border-radius:12px;border:1px solid #0d3020;
             font-size:12px;z-index:1000;
             box-shadow:0 4px 20px rgba(0,255,0,0.08)">
     <div style="font-weight:700;margin-bottom:8px;color:#39ff14;
                 letter-spacing:0.1em;font-size:11px">
-        🍄 PRAVDĚPODOBNOST VÝSKYTU
+        🍄 HISTORICKÉ NÁLEZY
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <div style="width:12px;height:12px;border-radius:50%;
-                    background:#ff0000;flex-shrink:0"></div>
-        <span style="color:#ccc">Velmi vysoká (&gt;75 %)</span>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="width:18px;height:18px;border-radius:50%;
+                    background:#39ff1430;border:1px solid #39ff1460;
+                    flex-shrink:0"></div>
+        <span style="color:#ccc">Oblast s více nálezy</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <div style="width:12px;height:12px;border-radius:50%;
-                    background:#ff5500;flex-shrink:0"></div>
-        <span style="color:#ccc">Vysoká (60–75 %)</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <div style="width:12px;height:12px;border-radius:50%;
-                    background:#ffaa00;flex-shrink:0"></div>
-        <span style="color:#ccc">Střední (45–60 %)</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <div style="width:12px;height:12px;border-radius:50%;
-                    background:#44cc44;flex-shrink:0"></div>
-        <span style="color:#ccc">Nízká (15–45 %)</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <div style="width:12px;height:12px;border-radius:50%;
-                    background:#006622;flex-shrink:0"></div>
-        <span style="color:#ccc">Velmi nízká (&lt;15 %)</span>
-    </div>
-    <hr style="border-color:#0d3020;margin:6px 0">
-    <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:12px;height:12px;border-radius:50%;
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="width:10px;height:10px;border-radius:50%;
                     background:#39ff14;flex-shrink:0"></div>
-        <span style="color:#ccc">GBIF historický nález</span>
+        <span style="color:#ccc">Konkrétní GBIF nález</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:10px;height:10px;border-radius:50%;
+                    background:#ff8c00;flex-shrink:0"></div>
+        <span style="color:#ccc">Tvůj vybraný bod</span>
     </div>
 </div>
 """
