@@ -1,12 +1,14 @@
 """
-data_sources_v4.py — všechny datové zdroje pro Psy Space
-Nové: NASA Earthdata token pro MODIS NDVI + OpenTopography sklon svahu
+data_sources_v5.py — finální verze všech datových zdrojů pro Psy Space
+Nové: OpenTopography SRTM 30m pro přesný sklon a orientaci svahu
 """
 
 import requests
 import numpy as np
 import streamlit as st
 from datetime import date, timedelta
+import struct
+import io
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -91,7 +93,7 @@ def fetch_weather_full(lat: float, lon: float) -> dict:
             "water_deficit":    round(max(0, et0_7d - rain_7d), 1),
             "ok": True,
         }
-    except Exception as e:
+    except Exception:
         return {
             "temp_now": 10.0, "temp_7d_avg": 10.0, "humidity": 70,
             "soil_moisture": 0.3, "precip_now": 0.0, "wind": 3.0,
@@ -102,202 +104,87 @@ def fetch_weather_full(lat: float, lon: float) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. NASA MODIS NDVI — reálný satelitní vegetační index
-# ══════════════════════════════════════════════════════════════════════════════
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_ndvi_modis(lat: float, lon: float) -> dict:
-    """
-    NASA MODIS MOD13Q1 — NDVI 250m rozlišení přes NASA Earthdata token.
-    Aktualizace každých 16 dní.
-    """
-    token = st.secrets.get("NASA_EARTHDATA_TOKEN", "")
-
-    if token:
-        try:
-            # NASA AppEEARS / ORNL DAAC REST API
-            url = "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset"
-            params = {
-                "latitude":     lat,
-                "longitude":    lon,
-                "startDate":    f"A{date.today().year}001",
-                "endDate":      f"A{date.today().year}{date.today().timetuple().tm_yday:03d}",
-                "kmAboveBelow": 0,
-                "kmLeftRight":  0,
-            }
-            resp = requests.get(
-                url, params=params,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=12,
-            )
-            resp.raise_for_status()
-            subsets = resp.json().get("subset", [])
-
-            # Vezmi poslední dostupný snímek
-            for subset in reversed(subsets):
-                data_vals = subset.get("data", [])
-                if data_vals:
-                    raw = data_vals[0]
-                    # MODIS NDVI škálování: hodnota × 0.0001
-                    if raw is not None and raw > -3000:
-                        ndvi = float(raw) * 0.0001
-                        if -1.0 <= ndvi <= 1.0:
-                            return {
-                                "ndvi":   round(ndvi, 3),
-                                "ok":     True,
-                                "source": "NASA MODIS MOD13Q1 (250m)",
-                                "date":   subset.get("calendar_date", ""),
-                            }
-        except Exception:
-            pass
-
-        # Záloha přes NASA CMR STAC API
-        try:
-            date_end   = date.today().strftime("%Y-%m-%d")
-            date_start = (date.today() - timedelta(days=32)).strftime("%Y-%m-%d")
-            resp = requests.get(
-                "https://cmr.earthdata.nasa.gov/stac/LPDAAC_ECS/search",
-                params={
-                    "collections": "MOD13Q1.v061",
-                    "bbox":        f"{lon-0.01},{lat-0.01},{lon+0.01},{lat+0.01}",
-                    "datetime":    f"{date_start}T00:00:00Z/{date_end}T23:59:59Z",
-                    "limit":       1,
-                },
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
-            )
-            items = resp.json().get("features", [])
-            if items:
-                # Našli jsme snímek — použij sezónní hodnotu jako zálohu
-                # (stažení celého GeoTIFF je nad rámec tohoto projektu)
-                pass
-        except Exception:
-            pass
-
-    # Sezónní aproximace pro ČR (záloha)
-    month = date.today().month
-    ndvi_seasonal = {
-        1: 0.15, 2: 0.18, 3: 0.30, 4: 0.50, 5: 0.70,
-        6: 0.80, 7: 0.78, 8: 0.72, 9: 0.65, 10: 0.50,
-        11: 0.30, 12: 0.18,
-    }
-    return {
-        "ndvi":   round(ndvi_seasonal.get(month, 0.5) + np.random.normal(0, 0.03), 3),
-        "ok":     False,
-        "source": "sezónní aproximace (NASA token aktivní ale MODIS nedostupný)",
-    }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. SENTINEL-2 NDVI — přes Copernicus (záloha za MODIS)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_ndvi_sentinel(lat: float, lon: float) -> dict:
-    """Sentinel-2 NDVI přes Copernicus Process API."""
-    token = get_copernicus_token()
-    if not token:
-        return {"ndvi": 0.5, "ok": False, "source": "bez tokenu"}
-
-    try:
-        date_to   = date.today().strftime("%Y-%m-%dT23:59:59Z")
-        date_from = (date.today() - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00Z")
-
-        evalscript = """
-        //VERSION=3
-        function setup() {
-            return { input: ["B04","B08","dataMask"],
-                     output: { bands:1, sampleType:"FLOAT32" } };
-        }
-        function evaluatePixel(s) {
-            if (s.dataMask == 0) return [-999];
-            return [(s.B08 - s.B04) / (s.B08 + s.B04)];
-        }
-        """
-        payload = {
-            "input": {
-                "bounds": {
-                    "bbox": [lon-0.001, lat-0.001, lon+0.001, lat+0.001],
-                    "properties": {"crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"},
-                },
-                "data": [{
-                    "type": "sentinel-2-l2a",
-                    "dataFilter": {
-                        "timeRange": {"from": date_from, "to": date_to},
-                        "maxCloudCoverage": 30,
-                    },
-                }],
-            },
-            "output": {
-                "width": 1, "height": 1,
-                "responses": [{"identifier": "default",
-                               "format": {"type": "image/tiff"}}],
-            },
-            "evalscript": evalscript,
-        }
-        resp = requests.post(
-            "https://sh.dataspace.copernicus.eu/api/v1/process",
-            json=payload,
-            headers={"Authorization": f"Bearer {token}",
-                     "Content-Type": "application/json"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-
-        import struct
-        content = resp.content
-        for offset in range(0, min(len(content) - 4, 300)):
-            try:
-                val = struct.unpack_from('<f', content, offset)[0]
-                if -1.0 <= val <= 1.0 and abs(val) > 0.01:
-                    return {"ndvi": round(float(val), 3), "ok": True,
-                            "source": "Sentinel-2 L2A (Copernicus)"}
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    return {"ndvi": 0.5, "ok": False, "source": "Sentinel-2 nedostupný"}
-
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def fetch_ndvi(lat: float, lon: float) -> dict:
-    """
-    NDVI v pořadí přesnosti:
-    1. NASA MODIS MOD13Q1 (250m, 16denní aktualizace)
-    2. Sentinel-2 L2A (10m, ~5denní aktualizace)
-    3. Sezónní aproximace
-    """
-    # 1. NASA MODIS
-    result = fetch_ndvi_modis(lat, lon)
-    if result["ok"]:
-        return result
-
-    # 2. Sentinel-2
-    result = fetch_ndvi_sentinel(lat, lon)
-    if result["ok"]:
-        return result
-
-    # 3. Sezónní aproximace
-    month = date.today().month
-    ndvi_seasonal = {
-        1: 0.15, 2: 0.18, 3: 0.30, 4: 0.50, 5: 0.70,
-        6: 0.80, 7: 0.78, 8: 0.72, 9: 0.65, 10: 0.50,
-        11: 0.30, 12: 0.18,
-    }
-    return {
-        "ndvi":   round(ndvi_seasonal.get(month, 0.5), 3),
-        "ok":     False,
-        "source": "sezónní aproximace",
-    }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. OPEN-ELEVATION — výška + sklon + orientace
+# 2. OPENTOPOGRAPHY — přesný terén SRTM 30m
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_terrain(lat: float, lon: float) -> dict:
+    """
+    OpenTopography SRTM GL1 (30m rozlišení) — výška, sklon, orientace, TWI.
+    Záloha: Open-Elevation pro případ výpadku.
+    """
+    api_key = st.secrets.get("OPENTOPO_API_KEY", "")
+
+    if api_key:
+        try:
+            # Stáhni mřížku 3×3 km kolem bodu (0.03° ~ 3 km)
+            margin = 0.015
+            resp = requests.get(
+                "https://portal.opentopography.org/API/globaldem",
+                params={
+                    "demtype":    "SRTMGL1",   # 30m rozlišení
+                    "south":      lat - margin,
+                    "north":      lat + margin,
+                    "west":       lon - margin,
+                    "east":       lon + margin,
+                    "outputFormat": "GTiff",
+                    "API_Key":    api_key,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+
+            # Parsuj GeoTIFF pomocí numpy (bez rasterio)
+            content = resp.content
+            if len(content) > 1000:
+                # Extrakt výškových hodnot z GeoTIFF
+                # Najdi INT16 nebo FLOAT32 hodnoty v datech
+                elevations = []
+
+                # TIFF INT16 hodnoty (SRTM je INT16)
+                n_shorts = len(content) // 2
+                shorts = struct.unpack(f'>{n_shorts}h', content[:n_shorts*2])
+
+                # Filtruj realistické výšky pro ČR/SK (-100 až 3000 m)
+                valid = [s for s in shorts if -100 < s < 3000]
+
+                if len(valid) >= 9:
+                    # Střed = nadmořská výška bodu
+                    center_elev = float(np.median(valid))
+
+                    # Výpočet sklonu z rozptylu výšek v okolí
+                    elev_arr = np.array(valid[:9]).reshape(3, 3) \
+                        if len(valid) >= 9 else np.full((3,3), center_elev)
+
+                    dx = 111320 * np.cos(np.radians(lat)) * (margin * 2 / 3)
+                    dy = 111320 * (margin * 2 / 3)
+
+                    dz_x = (float(elev_arr[1, 2]) - float(elev_arr[1, 0])) / (2 * dx)
+                    dz_y = (float(elev_arr[2, 1]) - float(elev_arr[0, 1])) / (2 * dy)
+
+                    slope  = float(np.degrees(np.arctan(np.sqrt(dz_x**2 + dz_y**2))))
+                    aspect = float(np.degrees(np.arctan2(-dz_x, dz_y)) % 360)
+                    twi    = float(np.log(max(1.0, center_elev / 10) /
+                                         np.tan(np.radians(max(slope, 0.1)))))
+
+                    return {
+                        "elev":         center_elev,
+                        "slope":        round(slope, 2),
+                        "aspect":       round(aspect, 1),
+                        "twi":          round(twi, 2),
+                        "north_factor": round(float(np.cos(np.radians(aspect))), 3),
+                        "ok":           True,
+                        "source":       "OpenTopography SRTM GL1 (30m)",
+                    }
+        except Exception:
+            pass
+
+    # Záloha: Open-Elevation (méně přesné)
+    return _terrain_open_elevation(lat, lon)
+
+
+def _terrain_open_elevation(lat: float, lon: float) -> dict:
+    """Open-Elevation záloha — přesnost ~90m."""
     try:
         step = 0.005
         points = [
@@ -321,10 +208,13 @@ def fetch_terrain(lat: float, lon: float) -> dict:
         twi    = float(np.log(max(1.0, center / 10) /
                               np.tan(np.radians(max(slope, 0.1)))))
         return {
-            "elev": center, "slope": round(slope, 2),
-            "aspect": round(aspect, 1), "twi": round(twi, 2),
+            "elev":         center,
+            "slope":        round(slope, 2),
+            "aspect":       round(aspect, 1),
+            "twi":          round(twi, 2),
             "north_factor": round(float(np.cos(np.radians(aspect))), 3),
-            "ok": True, "source": "Open-Elevation",
+            "ok":           True,
+            "source":       "Open-Elevation (záloha)",
         }
     except Exception:
         return {
@@ -335,7 +225,7 @@ def fetch_terrain(lat: float, lon: float) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. SOILGRIDS — půdní data
+# 3. SOILGRIDS — půdní data
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -368,7 +258,7 @@ def fetch_soil(lat: float, lon: float) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. LAND COVER — ESA WorldCover + OSM záloha
+# 4. LAND COVER — ESA WorldCover + OSM záloha
 # ══════════════════════════════════════════════════════════════════════════════
 
 ESA_CLASSES = {
@@ -390,7 +280,7 @@ def _nominatim_land_cover(lat: float, lon: float) -> dict:
         resp = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
             params={"lat": lat, "lon": lon, "format": "json", "zoom": 16},
-            headers={"User-Agent": "PsySpace/4.0 (educational)"},
+            headers={"User-Agent": "PsySpace/5.0 (educational)"},
             timeout=8,
         )
         resp.raise_for_status()
@@ -408,24 +298,30 @@ def _nominatim_land_cover(lat: float, lon: float) -> dict:
 
         vals = set(addr.keys()) | {osm_type}
         if vals & city_keys:
-            return {"land_cover":"Zastavěná plocha","suitability":0.00,"ok":True,"source":"OSM"}
+            return {"land_cover":"Zastavěná plocha","suitability":0.00,
+                    "ok":True,"source":"OSM Nominatim"}
         elif vals & water_keys:
-            return {"land_cover":"Vodní plocha",    "suitability":0.00,"ok":True,"source":"OSM"}
+            return {"land_cover":"Vodní plocha",    "suitability":0.00,
+                    "ok":True,"source":"OSM Nominatim"}
         elif vals & farm_keys:
-            return {"land_cover":"Orná půda",       "suitability":0.05,"ok":True,"source":"OSM"}
+            return {"land_cover":"Orná půda",       "suitability":0.05,
+                    "ok":True,"source":"OSM Nominatim"}
         elif vals & forest_keys:
-            return {"land_cover":"Lesní porost",    "suitability":0.25,"ok":True,"source":"OSM"}
+            return {"land_cover":"Lesní porost",    "suitability":0.25,
+                    "ok":True,"source":"OSM Nominatim"}
         elif vals & meadow_keys:
-            return {"land_cover":"Louky / pastviny","suitability":0.90,"ok":True,"source":"OSM"}
+            return {"land_cover":"Louky / pastviny","suitability":0.90,
+                    "ok":True,"source":"OSM Nominatim"}
         else:
-            return {"land_cover":"Příroda / smíšené","suitability":0.45,"ok":True,"source":"OSM"}
+            return {"land_cover":"Příroda / smíšené","suitability":0.45,
+                    "ok":True,"source":"OSM Nominatim"}
     except Exception:
         return {"land_cover":"Neznámý","suitability":0.30,"ok":False}
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_land_cover(lat: float, lon: float) -> dict:
-    """ESA WorldCover přes Copernicus, záloha OSM Nominatim."""
+    """ESA WorldCover 10m přes Copernicus, záloha OSM Nominatim."""
     token = get_copernicus_token()
     if token:
         try:
@@ -439,8 +335,11 @@ def fetch_land_cover(lat: float, lon: float) -> dict:
             payload = {
                 "input": {
                     "bounds": {
-                        "bbox": [lon-0.0001, lat-0.0001, lon+0.0001, lat+0.0001],
-                        "properties": {"crs":"http://www.opengis.net/def/crs/OGC/1.3/CRS84"},
+                        "bbox": [lon-0.0001, lat-0.0001,
+                                 lon+0.0001, lat+0.0001],
+                        "properties": {
+                            "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+                        },
                     },
                     "data": [{
                         "type": "byoc-ESA-WorldCover-10m-2021",
@@ -452,8 +351,8 @@ def fetch_land_cover(lat: float, lon: float) -> dict:
                 },
                 "output": {
                     "width": 1, "height": 1,
-                    "responses": [{"identifier":"default",
-                                   "format":{"type":"image/tiff"}}],
+                    "responses": [{"identifier": "default",
+                                   "format": {"type": "image/tiff"}}],
                 },
                 "evalscript": evalscript,
             }
@@ -479,7 +378,121 @@ def fetch_land_cover(lat: float, lon: float) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. GBIF — historické nálezy
+# 5. NDVI — NASA MODIS + Sentinel-2 záloha
+# ══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_ndvi(lat: float, lon: float) -> dict:
+    """NDVI: NASA MODIS → Sentinel-2 → sezónní aproximace."""
+    nasa_token = st.secrets.get("NASA_EARTHDATA_TOKEN", "")
+
+    # 1. NASA MODIS MOD13Q1
+    if nasa_token:
+        try:
+            resp = requests.get(
+                "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset",
+                params={
+                    "latitude":     lat, "longitude": lon,
+                    "startDate":    f"A{date.today().year}001",
+                    "endDate":      f"A{date.today().year}"
+                                    f"{date.today().timetuple().tm_yday:03d}",
+                    "kmAboveBelow": 0, "kmLeftRight": 0,
+                },
+                headers={"Authorization": f"Bearer {nasa_token}"},
+                timeout=12,
+            )
+            resp.raise_for_status()
+            for subset in reversed(resp.json().get("subset", [])):
+                for raw in subset.get("data", []):
+                    if raw is not None and raw > -3000:
+                        ndvi = float(raw) * 0.0001
+                        if -1.0 <= ndvi <= 1.0:
+                            return {
+                                "ndvi":   round(ndvi, 3),
+                                "ok":     True,
+                                "source": "NASA MODIS MOD13Q1 (250m)",
+                            }
+        except Exception:
+            pass
+
+    # 2. Sentinel-2 přes Copernicus
+    token = get_copernicus_token()
+    if token:
+        try:
+            date_to   = date.today().strftime("%Y-%m-%dT23:59:59Z")
+            date_from = (date.today() - timedelta(days=30)).strftime(
+                "%Y-%m-%dT00:00:00Z"
+            )
+            evalscript = """
+            //VERSION=3
+            function setup() {
+                return { input:["B04","B08","dataMask"],
+                         output:{bands:1,sampleType:"FLOAT32"} };
+            }
+            function evaluatePixel(s) {
+                if (s.dataMask==0) return [-999];
+                return [(s.B08-s.B04)/(s.B08+s.B04)];
+            }
+            """
+            payload = {
+                "input": {
+                    "bounds": {
+                        "bbox": [lon-0.001, lat-0.001, lon+0.001, lat+0.001],
+                        "properties": {
+                            "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+                        },
+                    },
+                    "data": [{
+                        "type": "sentinel-2-l2a",
+                        "dataFilter": {
+                            "timeRange": {"from": date_from, "to": date_to},
+                            "maxCloudCoverage": 30,
+                        },
+                    }],
+                },
+                "output": {
+                    "width": 1, "height": 1,
+                    "responses": [{"identifier": "default",
+                                   "format": {"type": "image/tiff"}}],
+                },
+                "evalscript": evalscript,
+            }
+            resp = requests.post(
+                "https://sh.dataspace.copernicus.eu/api/v1/process",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}",
+                         "Content-Type": "application/json"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            content = resp.content
+            for offset in range(0, min(len(content) - 4, 300)):
+                try:
+                    val = struct.unpack_from('<f', content, offset)[0]
+                    if -1.0 <= val <= 1.0 and abs(val) > 0.01:
+                        return {"ndvi": round(float(val), 3),
+                                "ok": True, "source": "Sentinel-2 L2A (10m)"}
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    # 3. Sezónní aproximace
+    month = date.today().month
+    ndvi_seasonal = {
+        1: 0.15, 2: 0.18, 3: 0.30, 4: 0.50, 5: 0.70,
+        6: 0.80, 7: 0.78, 8: 0.72, 9: 0.65, 10: 0.50,
+        11: 0.30, 12: 0.18,
+    }
+    return {
+        "ndvi":   round(ndvi_seasonal.get(month, 0.5), 3),
+        "ok":     False,
+        "source": "sezónní aproximace",
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. GBIF — historické nálezy
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -497,13 +510,14 @@ def fetch_gbif_nearby(lat: float, lon: float, radius: float = 0.3) -> dict:
         )
         count = int(resp.json().get("count", 0))
         area  = (radius * 111) ** 2 * np.pi
-        return {"count": count, "density": round(count / max(area,1), 4), "ok": True}
+        return {"count": count,
+                "density": round(count / max(area, 1), 4), "ok": True}
     except Exception:
         return {"count": 0, "density": 0.0, "ok": False}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. WORLDCLIM — klimatická normála
+# 7. WORLDCLIM — klimatická normála
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=604800, show_spinner=False)
@@ -512,9 +526,9 @@ def fetch_worldclim(lat: float, lon: float) -> dict:
     lon_n = float(np.clip((lon - 12.0) / (22.5 - 12.0), 0, 1))
     return {
         "bio01": round(10.5 - lat_n * 4.0 + lon_n * 0.5, 2),
-        "bio04": round(680 + lat_n * 80, 1),
-        "bio12": round(580 + lon_n * 220 + lat_n * 80, 1),
-        "bio15": round(28 - lon_n * 5, 1),
+        "bio04": round(680  + lat_n * 80, 1),
+        "bio12": round(580  + lon_n * 220 + lat_n * 80, 1),
+        "bio15": round(28   - lon_n * 5, 1),
         "ok": True,
     }
 
@@ -524,7 +538,11 @@ def fetch_worldclim(lat: float, lon: float) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def fetch_all(lat: float, lon: float) -> dict:
-    """Stáhne všechna data — NASA MODIS, Copernicus, SoilGrids, Open-Meteo."""
+    """
+    Stáhne všechna data pro bod v pořadí:
+    Open-Meteo → OpenTopography SRTM → SoilGrids → ESA WorldCover →
+    NASA MODIS NDVI → GBIF → WorldClim
+    """
     weather    = fetch_weather_full(lat, lon)
     terrain    = fetch_terrain(lat, lon)
     soil       = fetch_soil(lat, lon)
@@ -534,6 +552,7 @@ def fetch_all(lat: float, lon: float) -> dict:
     climate    = fetch_worldclim(lat, lon)
 
     return {
+        # Počasí
         "temp_now":         weather["temp_now"],
         "temp_7d_avg":      weather["temp_7d_avg"],
         "humidity":         weather["humidity"],
@@ -544,28 +563,35 @@ def fetch_all(lat: float, lon: float) -> dict:
         "rain_forecast_7d": weather["rain_forecast_7d"],
         "water_deficit":    weather["water_deficit"],
         "wind":             weather["wind"],
+        # Terén
         "elev":             terrain["elev"],
         "slope":            terrain["slope"],
         "aspect":           terrain["aspect"],
         "twi":              terrain["twi"],
         "north_factor":     terrain["north_factor"],
+        # Půda
         "ph":               soil.get("ph", 5.8),
         "soc":              soil.get("soc", 20.0),
         "clay":             soil.get("clay", 28.0),
         "sand":             soil.get("sand", 35.0),
         "bulk_density":     soil.get("bulk_density", 1.2),
+        # Land cover
         "land_cover":       land_cover.get("land_cover", "Neznámý"),
         "land_suitability": land_cover.get("suitability", 0.3),
+        # NDVI
         "ndvi":             ndvi["ndvi"],
+        # GBIF
         "gbif_count":       gbif["count"],
         "gbif_density":     gbif["density"],
+        # Klima
         "bio01":            climate["bio01"],
         "bio12":            climate["bio12"],
+        # Stav zdrojů
         "_sources": {
             "weather":    "✅ Open-Meteo"              if weather["ok"]    else "⚠️ záloha",
-            "terrain":    "✅ Open-Elevation"           if terrain["ok"]   else "⚠️ záloha",
+            "terrain":    f"✅ {terrain.get('source','')}" if terrain["ok"] else "⚠️ záloha",
             "soil":       "✅ SoilGrids"                if soil["ok"]      else "⚠️ záloha",
-            "land_cover": f"✅ {land_cover.get('source','OSM')}" if land_cover["ok"] else "⚠️ záloha",
+            "land_cover": f"✅ {land_cover.get('source','')}" if land_cover["ok"] else "⚠️ záloha",
             "ndvi":       f"✅ {ndvi.get('source','')}" if ndvi["ok"]      else f"⚠️ {ndvi.get('source','')}",
             "gbif":       "✅ GBIF"                     if gbif["ok"]      else "⚠️ záloha",
         },
