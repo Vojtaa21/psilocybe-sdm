@@ -25,14 +25,14 @@ st.set_page_config(
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"] {
-    background-color: #f9fbe7; color: #1a2e1a;
+    background-color: #f9fbe7; color: #1b5e20;
 }
 .block-container { padding-top: 1.2rem !important; max-width: 1280px; }
 [data-testid="stSidebar"] {
     background: linear-gradient(175deg, #f1f8e9 0%, #e8f5e9 100%);
-    border-right: 1px solid #0d3020;
+    border-right: 1px solid #a5d6a7;
 }
-[data-testid="stSidebar"] * { color: #2e4a2e !important; }
+[data-testid="stSidebar"] * { color: #1b5e20 !important; }
 [data-testid="stSidebar"] h1 {
     color: #1b5e20 !important; font-size: 1.35rem !important;
     letter-spacing: 0.1em;
@@ -49,7 +49,7 @@ html, body, [data-testid="stAppViewContainer"] {
     background-clip: text; line-height: 1.05;
 }
 .psy-species {
-    font-size: 0.82rem; color: #2d6040; letter-spacing: 0.2em;
+    font-size: 0.82rem; color: #1b5e20; letter-spacing: 0.2em;
     text-transform: uppercase; margin-bottom: 1rem;
 }
 .prob-widget {
@@ -63,14 +63,14 @@ html, body, [data-testid="stAppViewContainer"] {
     background: linear-gradient(90deg, transparent, #2e7d32, transparent);
 }
 .prob-label {
-    font-size: 0.72rem; color: #4a6741;
+    font-size: 0.72rem; color: #2e7d32;
     text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 10px;
 }
 .prob-value { font-size: 5rem; font-weight: 900; line-height: 1; }
 .prob-value.high   { color: #1b5e20; }
 .prob-value.medium { color: #e65100; }
 .prob-value.low    { color: #bf360c; }
-.prob-value.none   { color: #9e9e9e; }
+.prob-value.none   { color: #558b2f; }
 .prob-pct { font-size: 2rem; font-weight: 400; opacity: 0.7; }
 .prob-status {
     display: inline-block; margin-top: 10px; padding: 4px 16px;
@@ -79,22 +79,22 @@ html, body, [data-testid="stAppViewContainer"] {
 .prob-status.high   { background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7; }
 .prob-status.medium { background:#fff3e0;color:#e65100;border:1px solid #ffcc80; }
 .prob-status.low    { background:#fbe9e7;color:#bf360c;border:1px solid #ffab91; }
-.prob-status.none   { background:#f5f5f5;color:#757575;border:1px solid #e0e0e0; }
-.prob-coords { margin-top:10px;font-size:0.75rem;color:#5a7a5a;font-family:monospace; }
+.prob-status.none   { background:#f1f8e9;color:#558b2f;border:1px solid #c8e6c9; }
+.prob-coords { margin-top:10px;font-size:0.75rem;color:#1b5e20;font-family:monospace; }
 .sec-widget {
     background:#ffffff;border:1px solid #c8e6c9;border-radius:14px;
     padding:16px 14px 12px;text-align:center;margin-bottom:10px;
     box-shadow:0 1px 4px rgba(0,0,0,0.06);
 }
-.sec-label { font-size:0.68rem;color:#5a7a5a;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px; }
+.sec-label { font-size:0.68rem;color:#2e7d32;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px; }
 .sec-value { font-size:1.8rem;font-weight:800;color:#2e7d32;line-height:1; }
 .sec-value.orange { color:#e65100; }
-.sec-sub { font-size:0.72rem;color:#6a8a6a;margin-top:4px; }
+.sec-sub { font-size:0.72rem;color:#33691e;margin-top:4px; }
 .dc {
     background:#ffffff;border:1px solid #dcedc8;border-radius:9px;
     padding:9px 10px;text-align:center;
 }
-.dc-l { font-size:0.64rem;color:#6a8a6a;text-transform:uppercase;letter-spacing:0.08em; }
+.dc-l { font-size:0.64rem;color:#2e7d32;text-transform:uppercase;letter-spacing:0.08em; }
 .dc-v { font-size:1rem;font-weight:700;color:#2e7d32;margin-top:2px; }
 .sec-header {
     font-size:0.72rem;color:#e65100;text-transform:uppercase;
@@ -103,7 +103,7 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .map-tip {
     background:#f1f8e9;border:1px solid #c8e6c9;border-radius:10px;
-    padding:10px 14px;font-size:0.78rem;color:#4a6741;
+    padding:10px 14px;font-size:0.78rem;color:#1b5e20;
     margin-bottom:10px;line-height:1.5;
 }
 .map-tip span { color:#2e7d32; font-weight:600; }
@@ -144,7 +144,7 @@ section[data-testid="stSidebar"] { display: none !important; }
     background-clip: text;
 }
 .psy-logo-sub {
-    font-size: 0.7rem; color: #558b2f;
+    font-size: 0.7rem; color: #1b5e20;
     letter-spacing: 0.14em; text-transform: uppercase;
     margin-top: 1px;
 }
@@ -169,7 +169,7 @@ section[data-testid="stSidebar"] { display: none !important; }
     background-clip: text;
 }
 .psy-header-species {
-    font-size: 0.78rem; color: #558b2f;
+    font-size: 0.78rem; color: #1b5e20;
     letter-spacing: 0.16em; text-transform: uppercase;
 }
 </style>
@@ -414,10 +414,10 @@ st.markdown("""
             Psilocybe semilanceata &nbsp;·&nbsp; Celá ČR + SR
         </div>
     </div>
-    <div style="margin-left:auto;font-size:0.78rem;color:#5a7a5a;
+    <div style="margin-left:auto;font-size:0.78rem;color:#2e7d32;
                 text-align:right;line-height:1.7">
         👆 Klikni na mapu<br>
-        <span style="font-size:0.7rem;color:#8a9a8a">reálná data ze 6 zdrojů</span>
+        <span style="font-size:0.7rem;color:#33691e">reálná data ze 6 zdrojů</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -795,7 +795,7 @@ if map_data:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="text-align:center;font-size:0.72rem;color:#6a8a6a;letter-spacing:0.1em">
+<div style="text-align:center;font-size:0.72rem;color:#2e7d32;letter-spacing:0.1em">
     PSY SPACE v4 · Open-Meteo · SoilGrids · OpenTopography ·
     Copernicus ESA WorldCover · NASA MODIS · GBIF
 </div>""", unsafe_allow_html=True)
