@@ -149,26 +149,31 @@ def fetch_terrain(lat: float, lon: float) -> dict:
                 valid = [s for s in shorts if -100 < s < 3000]
 
                 if len(valid) >= 9:
-                    # Střed = nadmořská výška bodu
+                    # Střed = nadmořská výška bodu (median je robustnější než mean)
                     center_elev = float(np.median(valid))
 
-                    # Výpočet sklonu z rozptylu výšek v okolí
-                    elev_arr = np.array(valid[:9]).reshape(3, 3) \
-                        if len(valid) >= 9 else np.full((3,3), center_elev)
+                    # Sanitace outlierů — TIFF header bytes mohou vypadat
+                    # jako validní výšky, ale jsou to parsing artefakty
+                    elev_std = float(np.std(valid))
+                    cleaned  = [v for v in valid
+                                if abs(v - center_elev) < max(80, 2.5 * elev_std)]
+                    if len(cleaned) >= 4:
+                        center_elev = float(np.median(cleaned))
 
-                    dx = 111320 * np.cos(np.radians(lat)) * (margin * 2 / 3)
-                    dy = 111320 * (margin * 2 / 3)
+                    # Sklon: místo přímého gradientu z nevalidní mřížky
+                    # použijeme výškový rozsah přes celou oblast jako proxy.
+                    # Pro 3km mřížku: range 0–30m ≈ 0–1°, 30–150m ≈ 1–8°
+                    elev_range = float(max(valid) - min(valid))
+                    dist_m     = 111320 * margin * 2  # délka mřížky v metrech
+                    slope = float(np.degrees(np.arctan(elev_range / dist_m)))
+                    slope = min(slope, 35.0)  # max realistický sklon pro ČR
 
-                    dz_x = (float(elev_arr[1, 2]) - float(elev_arr[1, 0])) / (2 * dx)
-                    dz_y = (float(elev_arr[2, 1]) - float(elev_arr[0, 1])) / (2 * dy)
-
-                    slope  = float(np.degrees(np.arctan(np.sqrt(dz_x**2 + dz_y**2))))
-                    aspect = float(np.degrees(np.arctan2(-dz_x, dz_y)) % 360)
+                    aspect = 315.0  # default SZ — bez správné mřížky nelze určit
                     twi    = float(np.log(max(1.0, center_elev / 10) /
-                                         np.tan(np.radians(max(slope, 0.1)))))
+                                         np.tan(np.radians(max(slope, 0.5)))))
 
                     return {
-                        "elev":         center_elev,
+                        "elev":         round(center_elev, 1),
                         "slope":        round(slope, 2),
                         "aspect":       round(aspect, 1),
                         "twi":          round(twi, 2),
@@ -204,11 +209,14 @@ def _terrain_open_elevation(lat: float, lon: float) -> dict:
         dz_x   = (elevs[5] - elevs[3]) / (2 * dx)
         dz_y   = (elevs[7] - elevs[1]) / (2 * dy)
         slope  = float(np.degrees(np.arctan(np.sqrt(dz_x**2 + dz_y**2))))
+        # Sanitace: max realistický sklon pro ČR/SK je ~35°
+        # Vyšší hodnoty jsou artefakty API nebo chyby interpolace
+        slope  = min(slope, 35.0)
         aspect = float(np.degrees(np.arctan2(-dz_x, dz_y)) % 360)
         twi    = float(np.log(max(1.0, center / 10) /
-                              np.tan(np.radians(max(slope, 0.1)))))
+                              np.tan(np.radians(max(slope, 0.5)))))
         return {
-            "elev":         center,
+            "elev":         round(center, 1),
             "slope":        round(slope, 2),
             "aspect":       round(aspect, 1),
             "twi":          round(twi, 2),
