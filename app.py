@@ -110,6 +110,70 @@ html, body, [data-testid="stAppViewContainer"] {
 ::-webkit-scrollbar { width:4px; }
 ::-webkit-scrollbar-track { background:#f1f8e9; }
 ::-webkit-scrollbar-thumb { background:#a5d6a7;border-radius:2px; }
+
+/* Skryj collapse/expand tlačítko sidebaru */
+[data-testid="collapsedControl"] { display: none !important; }
+button[kind="header"] { display: none !important; }
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1rem;
+}
+
+/* Logo vylepšení */
+.psy-logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 0 4px;
+    border-bottom: 2px solid #c8e6c9;
+    margin-bottom: 6px;
+}
+.psy-logo-icon {
+    width: 52px; height: 52px;
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    border-radius: 14px;
+    border: 1.5px solid #a5d6a7;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(46,125,50,0.15);
+}
+.psy-logo-text { line-height: 1.1; }
+.psy-logo-name {
+    font-size: 1.6rem; font-weight: 900;
+    letter-spacing: 0.06em;
+    background: linear-gradient(90deg, #1b5e20, #33691e, #e65100);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.psy-logo-sub {
+    font-size: 0.7rem; color: #558b2f;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    margin-top: 1px;
+}
+.psy-header-bar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 0 10px;
+    border-bottom: 1.5px solid #c8e6c9;
+    margin-bottom: 16px;
+}
+.psy-header-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    border-radius: 12px; border: 1px solid #a5d6a7;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; flex-shrink: 0;
+}
+.psy-header-title { line-height: 1.15; }
+.psy-header-name {
+    font-size: 1.9rem; font-weight: 900; letter-spacing: 0.04em;
+    background: linear-gradient(90deg, #1b5e20 0%, #33691e 60%, #e65100 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.psy-header-species {
+    font-size: 0.78rem; color: #558b2f;
+    letter-spacing: 0.16em; text-transform: uppercase;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -333,9 +397,15 @@ def prob_to_color_hex(p: float) -> str:
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("# 🍄 Psy Space")
-    st.markdown("*predikce výskytu lysohlávek*")
-    st.markdown("---")
+    st.markdown("""
+    <div class="psy-logo-wrap">
+        <div class="psy-logo-icon">🍄</div>
+        <div class="psy-logo-text">
+            <div class="psy-logo-name">PSY SPACE</div>
+            <div class="psy-logo-sub">predikce výskytu hub</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("### Sledovaný druh")
     st.markdown(f"""
@@ -408,21 +478,22 @@ region_center = region_data[:3]   # [lat, lon, zoom]
 region_bbox   = region_data[3]    # [lat_min, lon_min, lat_max, lon_max]
 
 # Header
-col_title, col_hint = st.columns([2, 1])
-with col_title:
-    st.markdown('<div class="psy-logo">PSY SPACE</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="psy-species">{SPECIES["emoji"]} {SPECIES["name"]} '
-        f'· {selected_region}</div>',
-        unsafe_allow_html=True,
-    )
-with col_hint:
-    st.markdown("""
-    <div style="padding-top:16px;font-size:0.78rem;color:#2d6040;
-                text-align:right;line-height:1.8">
-        👆 Klikni na mapu pro analýzu<br>
-        <span style="font-size:0.7rem">reálná data z 6 zdrojů</span>
-    </div>""", unsafe_allow_html=True)
+st.markdown(f"""
+<div class="psy-header-bar">
+    <div class="psy-header-icon">🍄</div>
+    <div class="psy-header-title">
+        <div class="psy-header-name">PSY SPACE</div>
+        <div class="psy-header-species">
+            {SPECIES['name']} &nbsp;·&nbsp; {selected_region}
+        </div>
+    </div>
+    <div style="margin-left:auto;font-size:0.78rem;color:#5a7a5a;
+                text-align:right;line-height:1.7">
+        👆 Klikni na mapu<br>
+        <span style="font-size:0.7rem;color:#8a9a8a">reálná data ze 6 zdrojů</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ── Widgety ──────────────────────────────────────────────────────────────────
 col_prob, col_sec = st.columns([2, 1], gap="large")
