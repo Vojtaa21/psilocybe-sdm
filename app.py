@@ -238,6 +238,24 @@ def compute_probability(data: dict) -> tuple[float, dict]:
         0.08 * f_season
     )
 
+    # ── TVRDÁ BLOKACE — nevhodné land cover ─────────────────────────────────
+    # Město, voda, orná půda = lysohlávky se tam nikdy nevyskytují
+    land_cover = data.get("land_cover", "")
+    BLOCKED_COVERS = {"Zastavěná plocha", "Vodní plocha", "Sníh / led",
+                      "Holá půda", "Mangrovník"}
+    if land_cover in BLOCKED_COVERS:
+        factors = {k: 0.0 for k in [
+            "Teplota","Vlhkost","Srážky 7d","Srážky 3d","Vlhkost půdy",
+            "pH půdy","Org. hmota","Výška","Sklon","Orientace S",
+            "Land cover","NDVI","Sezóna",
+        ]}
+        factors["Land cover"] = 0.0
+        return 0.0, factors
+
+    # Orná půda — velmi nízká ale ne nulová šance (okraje polí)
+    if land_cover == "Orná půda":
+        base *= 0.05
+
     # ── GBIF boost (historická hustota nálezů) ───────────────────────────────
     gbif_boost = min(0.12, data.get("gbif_count", 0) * 0.006)
 
@@ -247,6 +265,13 @@ def compute_probability(data: dict) -> tuple[float, dict]:
     if data["humidity"] < 45:                           penalty *= 0.5
     if data.get("wind", 0) > 15:                        penalty *= 0.8
     if data.get("water_deficit", 0) > 30:               penalty *= 0.7
+
+    # Oprava nereálně vysokého sklonu (OpenTopography parsing artefakt)
+    slope = data.get("slope", 5.0)
+    if slope > 45:
+        # Nereálný sklon — ignoruj a použij průměr pro region
+        data["slope"] = 8.0
+        f_slope = tri(8.0, 2, 20, 0, 40)
 
     prob = float(np.clip((base + gbif_boost) * penalty, 0.0, 1.0))
 
