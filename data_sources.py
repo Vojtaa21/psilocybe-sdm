@@ -275,70 +275,184 @@ ESA_CLASSES = {
 }
 
 
+# OSM landuse/natural tagy → název + vhodnost pro lysohlávky
+OSM_LANDUSE_MAP = {
+    # Louky a pastviny — ideální
+    "meadow":       ("Louky / pastviny",  1.00),
+    "grassland":    ("Louky / pastviny",  1.00),
+    "pasture":      ("Louky / pastviny",  0.95),
+    "grass":        ("Louky / pastviny",  0.90),
+    "village_green":("Louky / pastviny",  0.70),
+    "recreation_ground": ("Louky",        0.60),
+    # Lesy
+    "forest":       ("Lesní porost",      0.25),
+    "wood":         ("Lesní porost",      0.25),
+    "scrub":        ("Keře a křoviny",    0.40),
+    "heath":        ("Vřesoviště",        0.45),
+    "nature_reserve":("Přírodní rezervace",0.55),
+    "national_park":("Národní park",      0.55),
+    "protected_area":("Chráněná oblast",  0.55),
+    # Zemědělství
+    "farmland":     ("Orná půda",         0.05),
+    "farm":         ("Orná půda",         0.05),
+    "farmyard":     ("Hospodářský dvůr",  0.02),
+    "orchard":      ("Sad",               0.10),
+    "vineyard":     ("Vinice",            0.05),
+    "allotments":   ("Zahrádky",          0.08),
+    # Zástavba
+    "residential":  ("Zástavba",          0.00),
+    "commercial":   ("Komerční zóna",     0.00),
+    "industrial":   ("Průmyslová zóna",   0.00),
+    "retail":       ("Obchodní zóna",     0.00),
+    "construction": ("Staveniště",        0.00),
+    # Voda a mokřady
+    "water":        ("Vodní plocha",      0.00),
+    "wetland":      ("Mokřad",            0.35),
+    "marsh":        ("Bažina",            0.30),
+    # Ostatní
+    "quarry":       ("Lom",               0.00),
+    "military":     ("Vojenský prostor",  0.10),
+    "cemetery":     ("Hřbitov",           0.15),
+    "park":         ("Park",              0.35),
+}
+
+OSM_NATURAL_MAP = {
+    "wood":         ("Lesní porost",      0.25),
+    "scrub":        ("Keře a křoviny",    0.40),
+    "heath":        ("Vřesoviště",        0.45),
+    "grassland":    ("Louky / pastviny",  1.00),
+    "meadow":       ("Louky / pastviny",  1.00),
+    "wetland":      ("Mokřad",            0.35),
+    "water":        ("Vodní plocha",      0.00),
+    "beach":        ("Pláž",              0.02),
+    "bare_rock":    ("Skála",             0.00),
+    "scree":        ("Suť",               0.00),
+    "glacier":      ("Ledovec",           0.00),
+    "fell":         ("Horská tundra",     0.20),
+    "moor":         ("Vřesoviště",        0.45),
+}
+
+
+def _overpass_land_cover(lat: float, lon: float) -> dict | None:
+    """
+    OSM Overpass API — dotaz na landuse/natural polygony obsahující bod.
+    Přesnější než Nominatim protože hledá skutečné polygony land use,
+    ne jen adresu nejbližšího bodu.
+    Radius 100m — zachytí i malé parcely.
+    """
+    try:
+        # Overpass QL dotaz: najdi landuse nebo natural polygony obsahující bod
+        query = f"""
+        [out:json][timeout:8];
+        (
+          way["landuse"](around:100,{lat},{lon});
+          relation["landuse"](around:100,{lat},{lon});
+          way["natural"](around:100,{lat},{lon});
+          relation["natural"](around:100,{lat},{lon});
+          way["leisure"](around:100,{lat},{lon});
+        );
+        out tags 1;
+        """
+        resp = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data={"data": query},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        elements = resp.json().get("elements", [])
+
+        for el in elements:
+            tags = el.get("tags", {})
+            landuse = tags.get("landuse", "")
+            natural = tags.get("natural", "")
+            leisure = tags.get("leisure", "")
+
+            # Zkontroluj landuse tag
+            if landuse in OSM_LANDUSE_MAP:
+                name, suit = OSM_LANDUSE_MAP[landuse]
+                return {"land_cover": name, "suitability": suit,
+                        "ok": True, "source": "OSM Overpass"}
+
+            # Zkontroluj natural tag
+            if natural in OSM_NATURAL_MAP:
+                name, suit = OSM_NATURAL_MAP[natural]
+                return {"land_cover": name, "suitability": suit,
+                        "ok": True, "source": "OSM Overpass"}
+
+            # leisure tag
+            leisure_map = {
+                "park":         ("Park",         0.35),
+                "pitch":        ("Hřiště",       0.10),
+                "golf_course":  ("Golf",         0.20),
+                "nature_reserve":("Přírodní rezervace", 0.55),
+            }
+            if leisure in leisure_map:
+                name, suit = leisure_map[leisure]
+                return {"land_cover": name, "suitability": suit,
+                        "ok": True, "source": "OSM Overpass"}
+
+        return None  # Žádný polygon nenalezen
+    except Exception:
+        return None
+
+
 def _nominatim_land_cover(lat: float, lon: float) -> dict:
+    """
+    OSM Nominatim — záloha za Overpass.
+    Rozhoduje podle OSM class/type, ne adresy.
+    """
     try:
         resp = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
-            params={"lat": lat, "lon": lon, "format": "json", "zoom": 16},
+            params={"lat": lat, "lon": lon, "format": "json", "zoom": 18},
             headers={"User-Agent": "PsySpace/5.0 (educational)"},
             timeout=8,
         )
         resp.raise_for_status()
-        data     = resp.json()
-        addr     = data.get("address", {})
-        osm_type = data.get("type", "")
+        data      = resp.json()
+        osm_type  = data.get("type", "")
+        osm_class = data.get("class", "")
+        tags      = data.get("extratags", {}) or {}
+        addr      = data.get("address", {})
 
-        # Skutečně zastavěné plochy — jen husté urbánní oblasti
-        # POZOR: "village" a "hamlet" záměrně vynecháváme —
-        # kliknutí na louku u vesnice vrátí village tag v adrese,
-        # ale to neznamená že jsme v zástavbě!
-        # Klíčový rozdíl: OSM "class" a "type" určují co JE bod,
-        # zatímco addr klíče říkají jen kde se nachází (i louka má adresu)
-        osm_class_type = {osm_class, osm_type}
+        # Zkus landuse/natural z extra tagů
+        landuse = tags.get("landuse", "") or osm_type if osm_class == "landuse" else ""
+        natural = tags.get("natural", "") or osm_type if osm_class == "natural" else ""
 
-        # Zastavěná plocha = pouze pokud JE bod přímo budova/silnice/komerční zona
-        truly_built = {"building","house","apartments","commercial","retail",
-                       "industrial","construction","motorway","trunk","primary",
-                       "secondary","tertiary","residential","pedestrian",
-                       "footway","cycleway","railway","aeroway"}
+        if landuse in OSM_LANDUSE_MAP:
+            name, suit = OSM_LANDUSE_MAP[landuse]
+            return {"land_cover": name, "suitability": suit,
+                    "ok": True, "source": "OSM Nominatim"}
+        if natural in OSM_NATURAL_MAP:
+            name, suit = OSM_NATURAL_MAP[natural]
+            return {"land_cover": name, "suitability": suit,
+                    "ok": True, "source": "OSM Nominatim"}
 
-        # Příroda/vegetace — pokud JE bod přímo příroda
-        forest_types = {"forest","wood","nature_reserve","national_park",
-                        "protected_area","heath","scrub"}
-        farm_types   = {"farm","farmland","farmyard","orchard","vineyard",
-                        "allotments","greenhouse_horticulture"}
-        meadow_types = {"meadow","grassland","grass","pasture",
-                        "recreation_ground","pitch","village_green"}
-        water_types  = {"water","river","lake","pond","reservoir",
-                        "stream","bay","wetland","marsh"}
+        # Záloha: detekce ze class/type
+        built = {"building","house","apartments","commercial","retail",
+                 "industrial","motorway","trunk","primary","secondary",
+                 "tertiary","residential","pedestrian","railway"}
+        if osm_class in built or osm_type in built:
+            return {"land_cover": "Zastavěná plocha", "suitability": 0.00,
+                    "ok": True, "source": "OSM Nominatim"}
 
-        # Rozhoduj podle toho CO bod IS (class/type), ne kde se nachází (addr)
-        if osm_class_type & truly_built:
-            return {"land_cover":"Zastavěná plocha","suitability":0.00,
-                    "ok":True,"source":"OSM Nominatim"}
-        elif osm_class_type & water_types or addr.get("natural") in water_types:
-            return {"land_cover":"Vodní plocha",    "suitability":0.00,
-                    "ok":True,"source":"OSM Nominatim"}
-        elif osm_class_type & farm_types or addr.get("landuse") in farm_types:
-            return {"land_cover":"Orná půda",       "suitability":0.05,
-                    "ok":True,"source":"OSM Nominatim"}
-        elif osm_class_type & forest_types or addr.get("natural") in {"wood","scrub"}:
-            return {"land_cover":"Lesní porost",    "suitability":0.25,
-                    "ok":True,"source":"OSM Nominatim"}
-        elif osm_class_type & meadow_types or addr.get("landuse") in {"grass","meadow"}:
-            return {"land_cover":"Louky / pastviny","suitability":0.90,
-                    "ok":True,"source":"OSM Nominatim"}
-        else:
-            # Výchozí: příroda/smíšené — lepší než falešná zastavěná plocha
-            return {"land_cover":"Příroda / smíšené","suitability":0.45,
-                    "ok":True,"source":"OSM Nominatim"}
+        # Výchozí: příroda/smíšené (lepší než Neznámý)
+        return {"land_cover": "Příroda / smíšené", "suitability": 0.45,
+                "ok": True, "source": "OSM Nominatim"}
     except Exception:
-        return {"land_cover":"Neznámý","suitability":0.30,"ok":False}
+        return {"land_cover": "Příroda / smíšené", "suitability": 0.40,
+                "ok": False, "source": "záloha"}
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_land_cover(lat: float, lon: float) -> dict:
-    """ESA WorldCover 10m přes Copernicus, záloha OSM Nominatim."""
+    """
+    Land cover ve 3 krocích — od nejpřesnějšího po zálohu:
+    1. ESA WorldCover 10m (Copernicus) — přesnost 10 m
+    2. OSM Overpass API — landuse polygony, přesnost parcel
+    3. OSM Nominatim — adresní záloha
+    """
+    # ── 1. ESA WorldCover přes Copernicus ────────────────────────────────────
     token = get_copernicus_token()
     if token:
         try:
@@ -381,9 +495,9 @@ def fetch_land_cover(lat: float, lon: float) -> dict:
                 timeout=15,
             )
             resp.raise_for_status()
-            content = resp.content
-            for offset in range(100, min(len(content), 500)):
-                val = content[offset]
+            c = resp.content
+            for offset in range(100, min(len(c), 500)):
+                val = c[offset]
                 if val in ESA_CLASSES:
                     name, suit = ESA_CLASSES[val]
                     return {"land_cover": name, "suitability": suit,
@@ -391,6 +505,12 @@ def fetch_land_cover(lat: float, lon: float) -> dict:
         except Exception:
             pass
 
+    # ── 2. OSM Overpass API — landuse polygony ────────────────────────────────
+    result = _overpass_land_cover(lat, lon)
+    if result:
+        return result
+
+    # ── 3. OSM Nominatim — záloha ─────────────────────────────────────────────
     return _nominatim_land_cover(lat, lon)
 
 
