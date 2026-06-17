@@ -25,26 +25,26 @@ st.set_page_config(
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"] {
-    background-color: #03080f; color: #d0f0d0;
+    background-color: #f9fbe7; color: #1a2e1a;
 }
 .block-container { padding-top: 1.2rem !important; max-width: 1280px; }
 [data-testid="stSidebar"] {
-    background: linear-gradient(175deg, #03080f 0%, #071a12 100%);
+    background: linear-gradient(175deg, #f1f8e9 0%, #e8f5e9 100%);
     border-right: 1px solid #0d3020;
 }
-[data-testid="stSidebar"] * { color: #7dcc8a !important; }
+[data-testid="stSidebar"] * { color: #2e4a2e !important; }
 [data-testid="stSidebar"] h1 {
-    color: #39ff14 !important; font-size: 1.35rem !important;
-    letter-spacing: 0.1em; text-shadow: 0 0 16px #39ff1460;
+    color: #1b5e20 !important; font-size: 1.35rem !important;
+    letter-spacing: 0.1em;
 }
 [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    color: #ff8c00 !important; font-size: 0.78rem !important;
+    color: #e65100 !important; font-size: 0.78rem !important;
     text-transform: uppercase; letter-spacing: 0.14em;
 }
-[data-testid="stSidebar"] hr { border-color: #0d3020 !important; }
+[data-testid="stSidebar"] hr { border-color: #c8e6c9 !important; }
 .psy-logo {
     font-size: 2.8rem; font-weight: 900; letter-spacing: 0.1em;
-    background: linear-gradient(90deg, #39ff14 0%, #a8e44a 50%, #ff8c00 100%);
+    background: linear-gradient(90deg, #2e7d32 0%, #558b2f 50%, #e65100 100%);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text; line-height: 1.05;
 }
@@ -53,62 +53,63 @@ html, body, [data-testid="stAppViewContainer"] {
     text-transform: uppercase; margin-bottom: 1rem;
 }
 .prob-widget {
-    background: linear-gradient(135deg, #03120a 0%, #071f10 100%);
-    border: 1px solid #0d4020; border-radius: 18px;
+    background: linear-gradient(135deg, #f1f8e9 0%, #e8f5e9 100%);
+    border: 1px solid #a5d6a7; border-radius: 18px;
     padding: 28px 24px 22px; text-align: center;
     position: relative; overflow: hidden;
 }
 .prob-widget::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, #39ff14, transparent);
+    background: linear-gradient(90deg, transparent, #2e7d32, transparent);
 }
 .prob-label {
-    font-size: 0.72rem; color: #2d6040;
+    font-size: 0.72rem; color: #4a6741;
     text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 10px;
 }
 .prob-value { font-size: 5rem; font-weight: 900; line-height: 1; }
-.prob-value.high   { color: #39ff14; text-shadow: 0 0 30px #39ff1450; }
-.prob-value.medium { color: #ffd700; text-shadow: 0 0 30px #ffd70040; }
-.prob-value.low    { color: #ff8c00; text-shadow: 0 0 30px #ff8c0040; }
-.prob-value.none   { color: #2d4030; }
+.prob-value.high   { color: #1b5e20; }
+.prob-value.medium { color: #e65100; }
+.prob-value.low    { color: #bf360c; }
+.prob-value.none   { color: #9e9e9e; }
 .prob-pct { font-size: 2rem; font-weight: 400; opacity: 0.7; }
 .prob-status {
     display: inline-block; margin-top: 10px; padding: 4px 16px;
     border-radius: 20px; font-size: 0.8rem; font-weight: 700;
 }
-.prob-status.high   { background:#0d3a10;color:#39ff14;border:1px solid #39ff1440; }
-.prob-status.medium { background:#2a2000;color:#ffd700;border:1px solid #ffd70040; }
-.prob-status.low    { background:#2a1000;color:#ff8c00;border:1px solid #ff8c0040; }
-.prob-status.none   { background:#0d1a10;color:#2d6040;border:1px solid #0d3020; }
-.prob-coords { margin-top:10px;font-size:0.75rem;color:#2d6040;font-family:monospace; }
+.prob-status.high   { background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7; }
+.prob-status.medium { background:#fff3e0;color:#e65100;border:1px solid #ffcc80; }
+.prob-status.low    { background:#fbe9e7;color:#bf360c;border:1px solid #ffab91; }
+.prob-status.none   { background:#f5f5f5;color:#757575;border:1px solid #e0e0e0; }
+.prob-coords { margin-top:10px;font-size:0.75rem;color:#5a7a5a;font-family:monospace; }
 .sec-widget {
-    background:#03120a;border:1px solid #0d3020;border-radius:14px;
+    background:#ffffff;border:1px solid #c8e6c9;border-radius:14px;
     padding:16px 14px 12px;text-align:center;margin-bottom:10px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.06);
 }
-.sec-label { font-size:0.68rem;color:#2d6040;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px; }
-.sec-value { font-size:1.8rem;font-weight:800;color:#39ff14;line-height:1; }
-.sec-value.orange { color:#ff8c00; }
-.sec-sub { font-size:0.72rem;color:#2d6040;margin-top:4px; }
+.sec-label { font-size:0.68rem;color:#5a7a5a;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px; }
+.sec-value { font-size:1.8rem;font-weight:800;color:#2e7d32;line-height:1; }
+.sec-value.orange { color:#e65100; }
+.sec-sub { font-size:0.72rem;color:#6a8a6a;margin-top:4px; }
 .dc {
-    background:#03120a;border:1px solid #0d3020;border-radius:9px;
+    background:#ffffff;border:1px solid #dcedc8;border-radius:9px;
     padding:9px 10px;text-align:center;
 }
-.dc-l { font-size:0.64rem;color:#2d6040;text-transform:uppercase;letter-spacing:0.08em; }
-.dc-v { font-size:1rem;font-weight:700;color:#7dcc8a;margin-top:2px; }
+.dc-l { font-size:0.64rem;color:#6a8a6a;text-transform:uppercase;letter-spacing:0.08em; }
+.dc-v { font-size:1rem;font-weight:700;color:#2e7d32;margin-top:2px; }
 .sec-header {
-    font-size:0.72rem;color:#ff8c00;text-transform:uppercase;
-    letter-spacing:0.2em;border-bottom:1px solid #0d3020;
+    font-size:0.72rem;color:#e65100;text-transform:uppercase;
+    letter-spacing:0.2em;border-bottom:1px solid #c8e6c9;
     padding-bottom:5px;margin:18px 0 10px;
 }
 .map-tip {
-    background:#03120a;border:1px solid #0d3020;border-radius:10px;
-    padding:10px 14px;font-size:0.78rem;color:#2d6040;
+    background:#f1f8e9;border:1px solid #c8e6c9;border-radius:10px;
+    padding:10px 14px;font-size:0.78rem;color:#4a6741;
     margin-bottom:10px;line-height:1.5;
 }
-.map-tip span { color:#39ff14; }
+.map-tip span { color:#2e7d32; font-weight:600; }
 ::-webkit-scrollbar { width:4px; }
-::-webkit-scrollbar-track { background:#03080f; }
-::-webkit-scrollbar-thumb { background:#0d3020;border-radius:2px; }
+::-webkit-scrollbar-track { background:#f1f8e9; }
+::-webkit-scrollbar-thumb { background:#a5d6a7;border-radius:2px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -338,10 +339,10 @@ with st.sidebar:
 
     st.markdown("### Sledovaný druh")
     st.markdown(f"""
-    <div style="background:#03120a;border:1px solid #0d3020;border-radius:10px;padding:12px 14px">
+    <div style="background:#ffffff;border:1px solid #c8e6c9;border-radius:10px;padding:12px 14px">
         <div style="font-size:1.3rem">{SPECIES['emoji']}</div>
-        <div style="color:#39ff14;font-weight:700;font-size:0.92rem">{SPECIES['cz']}</div>
-        <div style="color:#2d6040;font-size:0.76rem;font-style:italic">{SPECIES['name']}</div>
+        <div style="color:#1b5e20;font-weight:700;font-size:0.92rem">{SPECIES['cz']}</div>
+        <div style="color:#5a7a5a;font-size:0.76rem;font-style:italic">{SPECIES['name']}</div>
     </div>""", unsafe_allow_html=True)
     st.markdown("")
 
@@ -391,8 +392,8 @@ with st.sidebar:
         st.markdown(
             f'<span style="font-size:0.7rem;padding:2px 8px;border-radius:12px;'
             f'margin:2px;display:inline-block;'
-            f'background:{"#0d3010" if "✅" in status else "#1a1000"};'
-            f'color:{"#39ff14" if "✅" in status else "#ff8c00"};'
+            f'background:{"#e8f5e9" if "✅" in status else "#fff8e1"};'
+            f'color:{"#2e7d32" if "✅" in status else "#e65100"};'
             f'border:1px solid {"#39ff1430" if "✅" in status else "#ff8c0030"}">'
             f'{icon} {name}</span>',
             unsafe_allow_html=True,
@@ -512,7 +513,7 @@ if st.session_state.factor_scores:
     cols = st.columns(len(factors))
     for col, (name, score) in zip(cols, factors.items()):
         pct_f = int(score * 100)
-        color = "#39ff14" if score > 0.6 else "#ffd700" if score > 0.3 else "#ff8c00"
+        color = "#2e7d32" if score > 0.6 else "#f57f17" if score > 0.3 else "#c62828"
         with col:
             st.markdown(f"""
             <div class="dc" style="padding:8px 6px">
@@ -755,7 +756,7 @@ if map_data:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="text-align:center;font-size:0.72rem;color:#0d3020;letter-spacing:0.1em">
+<div style="text-align:center;font-size:0.72rem;color:#6a8a6a;letter-spacing:0.1em">
     PSY SPACE v4 · Open-Meteo · SoilGrids · OpenTopography ·
     Copernicus ESA WorldCover · NASA MODIS · GBIF
 </div>""", unsafe_allow_html=True)
