@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="Psy Space",
     page_icon="🍄",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
@@ -111,12 +111,10 @@ html, body, [data-testid="stAppViewContainer"] {
 ::-webkit-scrollbar-track { background:#f1f8e9; }
 ::-webkit-scrollbar-thumb { background:#a5d6a7;border-radius:2px; }
 
-/* Skryj collapse/expand tlačítko sidebaru */
+/* Skryj sidebar úplně */
 [data-testid="collapsedControl"] { display: none !important; }
-button[kind="header"] { display: none !important; }
-section[data-testid="stSidebar"] > div:first-child {
-    padding-top: 1rem;
-}
+[data-testid="stSidebar"] { display: none !important; }
+section[data-testid="stSidebar"] { display: none !important; }
 
 /* Logo vylepšení */
 .psy-logo-wrap {
@@ -394,97 +392,26 @@ def prob_to_color_hex(p: float) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+# OVLÁDACÍ PROMĚNNÉ — přesunuty z sidebaru do hlavního obsahu
 # ══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown("""
-    <div class="psy-logo-wrap">
-        <div class="psy-logo-icon">🍄</div>
-        <div class="psy-logo-text">
-            <div class="psy-logo-name">PSY SPACE</div>
-            <div class="psy-logo-sub">predikce výskytu hub</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("### Sledovaný druh")
-    st.markdown(f"""
-    <div style="background:#ffffff;border:1px solid #c8e6c9;border-radius:10px;padding:12px 14px">
-        <div style="font-size:1.3rem">{SPECIES['emoji']}</div>
-        <div style="color:#1b5e20;font-weight:700;font-size:0.92rem">{SPECIES['cz']}</div>
-        <div style="color:#5a7a5a;font-size:0.76rem;font-style:italic">{SPECIES['name']}</div>
-    </div>""", unsafe_allow_html=True)
-    st.markdown("")
-
-    st.markdown("---")
-    st.markdown("### Region")
-    selected_region = st.selectbox(
-        "Oblast", list(REGIONS.keys()), label_visibility="collapsed"
-    )
-
-    st.markdown("---")
-    st.markdown("### Časový rámec")
-    time_mode = st.radio(
-        "Období", ["Aktuální týden", "Vlastní rozsah"],
-        label_visibility="collapsed"
-    )
-    if time_mode == "Aktuální týden":
-        d_from = date.today() - timedelta(days=date.today().weekday())
-        d_to   = d_from + timedelta(days=6)
-        st.caption(f"📅 {d_from.strftime('%d. %m.')} — {d_to.strftime('%d. %m. %Y')}")
-        selected_month = date.today().month
-    else:
-        d_from = st.date_input("Od", value=date.today() - timedelta(days=7))
-        d_to   = st.date_input("Do", value=date.today())
-        selected_month = d_from.month
-
-    st.markdown("---")
-
-    # Ovládání mapy
-    st.markdown("### Vizualizace mapy")
-    show_clusters = st.checkbox("Zobrazit oblasti výskytu", value=True,
-                                help="Zvýrazněné oblasti s historickými nálezy")
-    show_gbif = st.checkbox("Zobrazit jednotlivé nálezy", value=True,
-                            help="Každý historický GBIF záznam jako bod")
-
-    st.markdown("---")
-    st.markdown("### Datové zdroje")
-    sources_map = {
-        "weather": "Open-Meteo", "terrain": "Open-Elevation",
-        "soil": "SoilGrids", "land_cover": "Copernicus",
-        "ndvi": "MODIS NDVI", "gbif": "GBIF",
-    }
-    all_data_sources = (st.session_state.all_data or {}).get("_sources", {})
-    for key, name in sources_map.items():
-        status = all_data_sources.get(key, "⚪ čeká")
-        cls = "src-ok" if "✅" in status else "src-warn"
-        icon = status.split()[0] if status else "⚪"
-        st.markdown(
-            f'<span style="font-size:0.7rem;padding:2px 8px;border-radius:12px;'
-            f'margin:2px;display:inline-block;'
-            f'background:{"#e8f5e9" if "✅" in status else "#fff8e1"};'
-            f'color:{"#2e7d32" if "✅" in status else "#e65100"};'
-            f'border:1px solid {"#39ff1430" if "✅" in status else "#ff8c0030"}">'
-            f'{icon} {name}</span>',
-            unsafe_allow_html=True,
-        )
+selected_region = "Celá ČR + SR"   # výchozí region
+selected_month  = date.today().month
+show_clusters   = True
+show_gbif       = True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HLAVNÍ OBSAH
 # ══════════════════════════════════════════════════════════════════════════════
-region_data   = REGIONS[selected_region]
-region_center = region_data[:3]   # [lat, lon, zoom]
-region_bbox   = region_data[3]    # [lat_min, lon_min, lat_max, lon_max]
 
 # Header
-st.markdown(f"""
+st.markdown("""
 <div class="psy-header-bar">
     <div class="psy-header-icon">🍄</div>
     <div class="psy-header-title">
         <div class="psy-header-name">PSY SPACE</div>
         <div class="psy-header-species">
-            {SPECIES['name']} &nbsp;·&nbsp; {selected_region}
+            Psilocybe semilanceata &nbsp;·&nbsp; Celá ČR + SR
         </div>
     </div>
     <div style="margin-left:auto;font-size:0.78rem;color:#5a7a5a;
@@ -494,6 +421,47 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# Ovládací panel pod headerem — region, časový rámec, vrstvy
+ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns([2, 2, 1, 1, 2])
+with ctrl1:
+    selected_region = st.selectbox(
+        "🗺 Region", list(REGIONS.keys()),
+        label_visibility="visible"
+    )
+with ctrl2:
+    time_mode = st.radio(
+        "📅 Období", ["Aktuální týden", "Vlastní rozsah"],
+        horizontal=True, label_visibility="visible"
+    )
+    if time_mode == "Aktuální týden":
+        selected_month = date.today().month
+    else:
+        d_from = st.date_input("Od", value=date.today() - timedelta(days=7))
+        selected_month = d_from.month
+with ctrl3:
+    show_clusters = st.checkbox("Oblasti", value=True)
+with ctrl4:
+    show_gbif = st.checkbox("GBIF body", value=True)
+with ctrl5:
+    all_data_sources = (st.session_state.all_data or {}).get("_sources", {})
+    src_html = ""
+    for key, name in {"weather":"Počasí","soil":"Půda",
+                      "land_cover":"Land cover","gbif":"GBIF"}.items():
+        s = all_data_sources.get(key, "⚪")
+        ok = "✅" in s
+        src_html += (f'<span style="font-size:0.68rem;padding:2px 7px;'
+                     f'border-radius:10px;margin:1px;display:inline-block;'
+                     f'background:{"#e8f5e9" if ok else "#fff8e1"};'
+                     f'color:{"#2e7d32" if ok else "#e65100"};'
+                     f'border:1px solid {"#a5d6a7" if ok else "#ffcc80"}">'
+                     f'{"✅" if ok else "⚠"} {name}</span>')
+    st.markdown(f'<div style="padding-top:4px">{src_html}</div>',
+                unsafe_allow_html=True)
+
+region_data   = REGIONS[selected_region]
+region_center = region_data[:3]
+region_bbox   = region_data[3]
 
 # ── Widgety ──────────────────────────────────────────────────────────────────
 col_prob, col_sec = st.columns([2, 1], gap="large")
