@@ -520,7 +520,7 @@ if st.session_state.clicked_lat and st.session_state.click_prob is not None:
 
     folium.Circle(
         [st.session_state.clicked_lat, st.session_state.clicked_lon],
-        radius=8000, color=hx, fill=True, fill_opacity=0.07, weight=1,
+        radius=int(200 + (st.session_state.click_prob or 0) * 1300), color=hx, fill=True, fill_opacity=0.15 + (st.session_state.click_prob or 0) * 0.25, weight=2,
     ).add_to(m)
 
 map_data = st_folium(m, width="100%", height=500, key="psy_map",
